@@ -26,36 +26,7 @@ def writeListToDestination(destination, listToWrite):
                 writer.write(listToWrite[i])
             i += 1
 
-def convert_interleaved_to_sequencial_fasta(fasta_in):
 
-    list_seq_names = []
-    list_seq_sequences = []
-    num_seqs = 0
-
-    fasta_cropped = []
-    # Get rid of the first line and get rid of the blank lines
-    for line in fasta_in[1:]:
-        if line != '':
-            fasta_cropped.append(line)
-
-    for line in fasta_cropped:
-        if line.startswith('>'):
-            num_seqs += 1
-
-    for i in range(len(fasta_cropped)):
-            if i < num_seqs:
-                # Then we are on one of the inital lines
-                list_seq_names.append(fasta_cropped[i].split()[0])
-                list_seq_sequences.append(''.join(fasta_cropped[i].split()[1:]))
-            else:
-                index = i%num_seqs
-                list_seq_sequences[index] += ''.join(fasta_cropped[i].split()[1:])
-
-    out_fasta = []
-    for name, seq in zip(list_seq_names, list_seq_sequences):
-        out_fasta.extend(['>{}'.format(name), seq])
-
-    return out_fasta
 
 def convert_interleaved_to_sequencial_fasta_two(fasta_in):
     fasta_out = []
@@ -127,14 +98,17 @@ def main():
 
     # Then start the workers
     for N in range(num_proc):
-        p = Process(target=create_local_alignment, args=(ortholog_input_queue, output_dir, spp_list))
+        p = Process(target=create_local_alignment_worker, args=(ortholog_input_queue, output_dir, spp_list))
         allProcesses.append(p)
         p.start()
 
     for p in allProcesses:
         p.join()
 
-def create_local_alignment(input, output_dir, spp_list):
+    # at this point we have the local alignments all written as fasta files to output_dir.
+    # Now it just remains to concatenate and then run the ML tree.
+
+def create_local_alignment_worker(input, output_dir, spp_list):
     # for each list that represents an ortholog
     for k_v_pair in iter(input.get, 'STOP'):
 
