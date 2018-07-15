@@ -2,8 +2,8 @@ import pandas as pd
 import os
 from multiprocessing import Queue, Process, Manager, current_process
 from plumbum import local
-
-
+import os
+import sys
 def readDefinedFileToList(filename):
     temp_list = []
     with open(filename, mode='r') as reader:
@@ -47,17 +47,17 @@ def convert_interleaved_to_sequencial_fasta_two(fasta_in):
     return fasta_out
 
 
-def main():
+def generate_local_alignments_for_each_ortholog():
     # the amino acid sequences
-    aa_seq_array = pd.read_csv('/home/humebc/projects/parky/aa_tree_creation/aa_seq.csv', sep=',', lineterminator='\n', index_col=0, header=0)
+    aa_seq_array = pd.read_csv('/home/humebc/projects/parky/aa_seq_multi_orf_orths_fixed.csv', sep=',', lineterminator='\n', index_col=0, header=0)
 
     # the gene IDs
-    gene_id_array = pd.read_csv('/home/humebc/projects/parky/aa_tree_creation/gene_id.csv', sep=',', lineterminator='\n', index_col=0, header=0)
+    gene_id_array = pd.read_csv('/home/humebc/projects/parky/gene_id_fixed.csv', sep=',', lineterminator='\n', index_col=0, header=0)
 
     # the row and column headings should be the same for both arrays so we can iterate both at the same time
     # for each row
     # each row represents an ortholog. These will be our units to process. We may want to multiprocess this.
-    # to make this multiprocess friendly, lets through tuples of gene_id_name and aa_sequence into a list and then
+    # to make this multiprocess friendly, lets throw tuples of gene_id_name and aa_sequence into a list and then
     # add this to a list. Creating a 2D list. We can then offer up each of these list items to a queue that we can parse
     # when doing the MPing
 
@@ -107,6 +107,7 @@ def main():
 
     # at this point we have the local alignments all written as fasta files to output_dir.
     # Now it just remains to concatenate and then run the ML tree.
+
 
 def create_local_alignment_worker(input, output_dir, spp_list):
     # for each list that represents an ortholog
@@ -190,12 +191,40 @@ def create_local_alignment_worker(input, output_dir, spp_list):
         # here we should be done with the single alignment
         print('Local alignment for {} completed'.format(ortholog_id))
 
+def concatenate_local_alignments():
+    # get a list of all of the fasta names that we will want to concatenate
+    base_dir = '/home/humebc/projects/parky/aa_tree_creation/local_alignments'
+    list_of_files = [f for f in os.listdir(base_dir) if 'aligned_cropped.fasta' in f]
 
-main()
+    # lets sort the list of files by number so that we start with the smallest
+    nums_in_file_names = sorted([int(name.split('_')[0]) for name in list_of_files])
+
+    list_of_files = [str(file_num) + '_aligned_cropped.fasta' for file_num in nums_in_file_names]
+
+    # not the most elegant way but I think I'll just create the mast fasta in memory
+    master_fasta = ['>min','', '>pmin', '', '>psyg', '', '>ppsyg', '']
 
 
 
+    for file_name in list_of_files:
+        sys.stdout.write('\rProcessing ortholog: {}'.format(file_name))
+        with open('{}/{}'.format(base_dir, file_name), 'r') as f:
+            temp_list_of_lines = [line.rstrip() for line in f]
 
+        for i in range(1, len(temp_list_of_lines), 2):
+            new_seq = master_fasta[i] + temp_list_of_lines[i]
+            master_fasta[i] = new_seq
+
+    # now write out the master fasta
+    master_fasta_output_path = '{}/master.fasta'.format(base_dir)
+    with open(master_fasta_output_path, 'w') as f:
+        for line in master_fasta:
+            f.write('{}\n'.format(line))
+
+    print('\nConstruction of master fasta complete: {}'.format(master_fasta_output_path))
+
+
+concatenate_local_alignments()
 
 
 
