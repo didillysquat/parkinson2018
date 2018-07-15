@@ -4,6 +4,7 @@ from multiprocessing import Queue, Process, Manager, current_process
 from plumbum import local
 import os
 import sys
+import subprocess
 def readDefinedFileToList(filename):
     temp_list = []
     with open(filename, mode='r') as reader:
@@ -223,8 +224,63 @@ def concatenate_local_alignments():
 
     print('\nConstruction of master fasta complete: {}'.format(master_fasta_output_path))
 
+def convert_fasta_to_phylip():
+    from Bio import AlignIO
 
-concatenate_local_alignments()
+    base_dir = '/home/humebc/projects/parky/aa_tree_creation/local_alignments'
+    fasta_alignment = AlignIO.read('{}/master.fasta'.format(base_dir), 'fasta')
+    AlignIO.write(fasta_alignment, handle='/home/humebc/projects/parky/aa_tree_creation/master.phylip', format='phylip')
+
+def generate_protein_substitution_models_for_each_gene():
+    # we will find each of the local alignments and run put them into a list which we will MP
+    # for each item we will run prottest with a single thread and output a file
+    # in the concatenate local alignments file we will then create a q file that will
+    # designate the different partitions and which of the substitution models to use.
+
+    # get a list of all of the fasta names that we will want to concatenate
+    base_dir = '/home/humebc/projects/parky/aa_tree_creation/local_alignments'
+    list_of_files = [f for f in os.listdir(base_dir) if 'aligned_cropped.fasta' in f]
+
+
+    num_proc = 12
+
+    # Queue that will hold the index of the rows that need to be checked
+    input_queue = Queue()
+
+    # populate input_queue
+    for file_name in list_of_files:
+        input_queue.put(file_name)
+
+    for i in range(num_proc):
+        input_queue.put('STOP')
+
+    list_of_processes = []
+    for N in range(num_proc):
+        p = Process(target=prottest_worker, args=(input_queue,))
+        list_of_processes.append(p)
+        p.start()
+
+    for p in list_of_processes:
+        p.join()
+
+    return
+
+def prottest_worker(input_queue):
+    base_dir = '/home/humebc/projects/parky/aa_tree_creation/local_alignments'
+    for file_name in iter(input_queue.get, 'STOP'):
+        input_path = '{}/{}'.format(base_dir, file_name)
+        output_path = input_path.replace('_aligned_cropped.fasta', '_prottest_result.out')
+        if os.path.isfile(output_path):
+            continue
+        sys.stdout.write('\rRunning prottest: {}'.format(file_name))
+        # perform the prottest
+        prot_path = '/home/humebc/phylogeneticsSoftware/protest/prottest-3.4.2/prottest-3.4.2.jar'
+        subprocess.run(['java', '-jar', prot_path, '-i', input_path, '-o', output_path, '-all-distributions', '-all']
+                       , stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+
+
+generate_protein_substitution_models_for_each_gene()
 
 
 
