@@ -285,7 +285,7 @@ def concatenate_local_alignments():
     # doesn't have to be WAG.
     raxml_path = '/home/humebc/phylogeneticsSoftware/raxml/standard-RAxML/raxmlHPC-PTHREADS-AVX'
     subprocess.run([raxml_path, '-s', master_fasta_output_path, '-q', q_file_output_path,
-                    '-x', '183746', '-f', 'a', '-p', '83746273', '-#', '100', '-T', '8', '-n', 'parkinson_out',
+                    '-x', '183746', '-f', 'a', '-p', '83746273', '-#', '1000', '-T', '8', '-n', 'parkinson_out',
                     '-m', 'PROTGAMMAWAG', '-w', '/home/humebc/projects/parky/aa_tree_creation'])
 
     print('\nConstruction of master fasta complete:\n{}\n{}'.format(master_fasta_output_path, q_file_output_path))
