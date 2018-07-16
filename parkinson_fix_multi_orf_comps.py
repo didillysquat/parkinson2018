@@ -34,6 +34,8 @@ def do_the_work():
     # We want to be able to compare how many of the alignments we fixed and how many were OK due to luck
     # To do this we will need a couple of counters but also the currently chosen ORFs
     aa_seq_df = pd.read_csv('/home/humebc/projects/parky/aa_seq_fixed_again.csv', index_col=0)
+
+
     multi_orf_counter = 0
     fixed_counter = 0
 
@@ -66,14 +68,9 @@ def do_the_work():
     # lists of the list_of_multi_orf_comps_per_spp. When we find a row that has at least one in those lists
     # this is a row we will need to do the computation on to figure out which ORFs should be in the alignment
     mp_list = []
+
     col_labels = list(gene_id_df)
-    section_one_time = 0
-    section_two_time = 0
-    section_three_time = 0
-
-
     for index in gene_id_df.index.values.tolist():
-
         # within each row check to see if the comp is in its respective list
         row_to_check = False
         for i in range(len(col_labels)):
@@ -85,16 +82,13 @@ def do_the_work():
 
 
         if row_to_check:
-            # print('{}\n{}\n{}\n'.format(section_one_time, section_two_time, section_three_time))
-            t0 = time.time()
             print('Checking multi-ORF ortholog {}'.format(index), end='\r')
             multi_orf_counter += 1
             list_of_lists_of_possible_orfs = [comp_to_orfs_dict_holder_list[i][gene_id_df.loc[index, col_labels[i]]] for
                                               i in
                                               range(len(col_labels))]
-            t1 = time.time()
-            section_one_time += t1 - t0
-            t2 = time.time()
+
+
             # now run itertools.product on this list of lists to get the tuples which are essentially
             # the different orfs that we would be trying to align
             list_of_lists_of_possible_orfs_as_aa = [[] for spp in col_labels]
@@ -103,8 +97,7 @@ def do_the_work():
                     list_of_lists_of_possible_orfs_as_aa[k].append(orf_to_aa_dict_holder_list[k][orfID])
             # hardcode it to a list so that we can get the index of each tuple below
             alignment_tuples = [tup for tup in itertools.product(*list_of_lists_of_possible_orfs_as_aa)]
-            t3 = time.time()
-            section_two_time += t3-t2
+
 
             mp_list.append((alignment_tuples, aa_seq_df.loc[index].tolist(), index))
 

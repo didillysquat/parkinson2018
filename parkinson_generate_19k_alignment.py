@@ -231,7 +231,8 @@ def concatenate_local_alignments():
         model_to_orth_dict[model].append(orth_num)
 
     # #N.B. that we cannot have different gamma for different partitions
-    # # same for +I so I will run with GAMMAI as the -m argument
+    # # Also best advice is not to run +G and +I together.
+    # # As such we only need to extract the base model here i.e. WAG rather than WAG [+G|+I]
     # for model in model_to_orth_dict
 
     print('The 19k sequences are best represented by {} different aa models'.format(len(model_to_orth_dict.keys())))
@@ -241,15 +242,6 @@ def concatenate_local_alignments():
     sorted_model_list = sorted(model_to_orth_dict, key=lambda k: len(model_to_orth_dict[k]), reverse=True)
 
     # now go model by model in the sorted_model_list to make the master alignment.
-
-    # get a list of all of the fasta names that we will want to concatenate
-
-    # list_of_fasta_file_names = [f for f in os.listdir(base_dir) if 'aligned_cropped.fasta' in f]
-
-    # # lets sort the list of files by number so that we start with the smallest
-    # nums_in_file_names = sorted([int(name.split('_')[0]) for name in list_of_fasta_file_names])
-
-    # list_of_files = [str(file_num) + '_aligned_cropped.fasta' for file_num in nums_in_file_names]
 
     # not the most elegant way but I think I'll just create the mast fasta in memory
     master_fasta = ['>min','', '>pmin', '', '>psyg', '', '>ppsyg', '']
