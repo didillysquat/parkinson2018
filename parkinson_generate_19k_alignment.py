@@ -5,6 +5,7 @@ from plumbum import local
 import os
 import sys
 import subprocess
+from collections import defaultdict
 def readDefinedFileToList(filename):
     temp_list = []
     with open(filename, mode='r') as reader:
@@ -193,36 +194,109 @@ def create_local_alignment_worker(input, output_dir, spp_list):
         print('Local alignment for {} completed'.format(ortholog_id))
 
 def concatenate_local_alignments():
-    # get a list of all of the fasta names that we will want to concatenate
+    # The master alignment that we create should be partitioned according to the protein model used.
+    # I have generated all of the .out files which are the outputs from the prottest
+    # We should iter through these and create a dictionary that is a model type as key
+    # and then have a list of the orthologs of that model.
+    # then sort this by the length of the list
+    # then work our way through the local alignments in this order creating the alignment
+    # We will need to generate the p file as we go
+    # this should take the form
+    '''
+    JTT, gene1 = 1-500
+    WAGF, gene2 = 501-800
+    WAG, gene3 = 801-1000
+
+    '''
+
+    # get list of the .out prottest files
     base_dir = '/home/humebc/projects/parky/aa_tree_creation/local_alignments'
-    list_of_files = [f for f in os.listdir(base_dir) if 'aligned_cropped.fasta' in f]
+    list_of_prot_out_filenames = [f for f in os.listdir(base_dir) if 'prottest' in f]
 
-    # lets sort the list of files by number so that we start with the smallest
-    nums_in_file_names = sorted([int(name.split('_')[0]) for name in list_of_files])
+    # iter through the list of protfiles creating the dict relating model to ortholog
+    # we cannnot change the +G or +I for each partition. As such I will define according to the base model
+    model_to_orth_dict = defaultdict(list)
+    for i in range(len(list_of_prot_out_filenames)):
+        model = ''
+        file_name = list_of_prot_out_filenames[i]
+        orth_num = int(file_name.split('_')[0])
+        with open('{}/{}'.format(base_dir, file_name), 'r') as f:
+            temp_file_list = [line.rstrip() for line in f]
+        for j in range(300, len(temp_file_list), 1):
+            if 'Best model according to BIC' in temp_file_list[j]:
+                model = temp_file_list[j].split(':')[1].strip().replace('+G','').replace('+I','')
+                break
+        if model == '':
+            sys.exit('Model line not found in {}'.format(orth_num))
+        model_to_orth_dict[model].append(orth_num)
 
-    list_of_files = [str(file_num) + '_aligned_cropped.fasta' for file_num in nums_in_file_names]
+    # #N.B. that we cannot have different gamma for different partitions
+    # # same for +I so I will run with GAMMAI as the -m argument
+    # for model in model_to_orth_dict
+
+    print('The 19k sequences are best represented by {} different aa models'.format(len(model_to_orth_dict.keys())))
+
+    # here we have the dict populated
+    # now sort the dict
+    sorted_model_list = sorted(model_to_orth_dict, key=lambda k: len(model_to_orth_dict[k]), reverse=True)
+
+    # now go model by model in the sorted_model_list to make the master alignment.
+
+    # get a list of all of the fasta names that we will want to concatenate
+
+    # list_of_fasta_file_names = [f for f in os.listdir(base_dir) if 'aligned_cropped.fasta' in f]
+
+    # # lets sort the list of files by number so that we start with the smallest
+    # nums_in_file_names = sorted([int(name.split('_')[0]) for name in list_of_fasta_file_names])
+
+    # list_of_files = [str(file_num) + '_aligned_cropped.fasta' for file_num in nums_in_file_names]
 
     # not the most elegant way but I think I'll just create the mast fasta in memory
     master_fasta = ['>min','', '>pmin', '', '>psyg', '', '>ppsyg', '']
 
+    # The q file will hold the information for the partitioning of the alignment for the raxml analysis
+    q_file = []
+    for model in sorted_model_list:
+        q_file_start = len(master_fasta[1]) + 1
+        sys.stdout.write('\rProcessing model {} sequences'.format(model))
+        for orth_num in model_to_orth_dict[model]:
+            file_name = str(orth_num) + '_aligned_cropped.fasta'
+            with open('{}/{}'.format(base_dir, file_name), 'r') as f:
+                temp_list_of_lines = [line.rstrip() for line in f]
 
+            for i in range(1, len(temp_list_of_lines), 2):
+                new_seq = master_fasta[i] + temp_list_of_lines[i]
+                master_fasta[i] = new_seq
+        q_file_finish = len(master_fasta[1])
+        q_file.append('{}, gene{} = {}-{}'.format(
+            model.upper(), sorted_model_list.index(model) + 1, q_file_start, q_file_finish))
 
-    for file_name in list_of_files:
-        sys.stdout.write('\rProcessing ortholog: {}'.format(file_name))
-        with open('{}/{}'.format(base_dir, file_name), 'r') as f:
-            temp_list_of_lines = [line.rstrip() for line in f]
-
-        for i in range(1, len(temp_list_of_lines), 2):
-            new_seq = master_fasta[i] + temp_list_of_lines[i]
-            master_fasta[i] = new_seq
+    # here we have the master fasta and the q file ready to be outputted
 
     # now write out the master fasta
-    master_fasta_output_path = '{}/master.fasta'.format(base_dir)
+    master_fasta_output_path = '/home/humebc/projects/parky/aa_tree_creation/master.fasta'
     with open(master_fasta_output_path, 'w') as f:
         for line in master_fasta:
             f.write('{}\n'.format(line))
 
-    print('\nConstruction of master fasta complete: {}'.format(master_fasta_output_path))
+    # now write out the q file
+    q_file_output_path = '/home/humebc/projects/parky/aa_tree_creation/qfile.q'
+    with open(q_file_output_path, 'w') as f:
+        for line in q_file:
+            f.write('{}\n'.format(line))
+
+    # now run raxml
+    #NB note that although we are specificing mdels for each partition, we still need to add the PROTGAMMAIWAG
+    # model argument to the -m flag. This is just a weird operation of raxml and is explained but hidden in the manual
+    # (search for 'If you want to do a partitioned analysis of concatenated'). Raxml will only extract the rate
+    # variation information from this and will ignore the model component e.g. WAG. FYI any model could be used
+    # doesn't have to be WAG.
+    raxml_path = '/home/humebc/phylogeneticsSoftware/raxml/standard-RAxML/raxmlHPC-PTHREADS-AVX'
+    subprocess.run([raxml_path, '-s', master_fasta_output_path, '-q', q_file_output_path,
+                    '-x', '183746', '-f', 'a', '-p', '83746273', '-#', '100', '-T', '8', '-n', 'parkinson_out',
+                    '-m', 'PROTGAMMAWAG', '-w', '/home/humebc/projects/parky/aa_tree_creation'])
+
+    print('\nConstruction of master fasta complete:\n{}\n{}'.format(master_fasta_output_path, q_file_output_path))
 
 def convert_fasta_to_phylip():
     from Bio import AlignIO
@@ -280,7 +354,7 @@ def prottest_worker(input_queue):
 
 
 
-generate_protein_substitution_models_for_each_gene()
+concatenate_local_alignments()
 
 
 
