@@ -311,6 +311,16 @@ def do_the_work():
     # add the multi proc list of indices to drop to the non-multi proc list
     ortholog_indices_to_drop.extend(list(list_of_indices_to_drop))
 
+    # print out the orthologs that were non %3 compliant
+    with open('non_mod_3_compliant_orthologs.txt', 'w') as f:
+        for line in ortholog_indices_to_drop:
+            f.write('{}\n'.format(line))
+
+    # print out the orthologs that needed fixing
+    with open('multi_orf_orthologs_that_needed_fixing.txt', 'w') as f:
+        for orth_id in rows_to_be_replaced_dict.keys():
+            f.write('{}\n'.format(orth_id))
+
     # now drop the indices from the dfs (all three)
     aa_seq_df = aa_seq_df.drop(ortholog_indices_to_drop, axis=0)
     cds_seq_df = cds_seq_df.drop(ortholog_indices_to_drop, axis=0)
