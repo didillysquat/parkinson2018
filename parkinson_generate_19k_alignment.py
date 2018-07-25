@@ -8,6 +8,7 @@ import subprocess
 from collections import defaultdict
 import itertools
 import pickle
+import shutil
 def readDefinedFileToList(filename):
     temp_list = []
     with open(filename, mode='r') as reader:
@@ -768,29 +769,110 @@ def CODEML_run_worker(input_queue):
         subprocess.run([CODEML_path, ctrl_file_path])
 
 
+def create_directories_and_run_busted():
+    ''' The BUSTED annoyingly has an interactive interface. It does accept special batch files, but I really
+    don't want to have to invest the time in learning how to use those just for this analysis.
+    Instead I will simply use a text file that had the predetermined answers to the interactive prompts in
+    order to start analyses.
+    To conduct the analyses we will have to go ortholog by ortholog, pulling out the fasta alignment
+    and then writing this to a new directory were we will also write the tree. Then we simply write
+    the answer file and run the command.
 
-run_CODEML_analyses()
+    We should definitely MP this. To do this we should read in the directories
+    and put these in as the MP list arguments. We should then make all of the files etc and run the analyses
+    within these threads.
+
+    we need to remember to check that alignments aren't empty.'''
+
+    local_dirs_dir = '/home/humebc/projects/parky/local_alignments'
+    list_of_dirs = list()
+    for root, dirs, files in os.walk(local_dirs_dir):
+        list_of_dirs = dirs
+        break
+
+    input_queue = Queue()
+
+    for dir in list_of_dirs:
+        input_queue.put(dir)
+
+    num_proc = 40
+
+    for i in range(num_proc):
+        input_queue.put('STOP')
+
+    list_of_processes = []
+    for N in range(num_proc):
+        p = Process(target=BUSTED_MP_worker, args=(input_queue,))
+        list_of_processes.append(p)
+        p.start()
+
+    for p in list_of_processes:
+        p.join()
+
+    apples = 'asdf'
+
+def BUSTED_MP_worker(input_queue):
+    busted_analyses_dir = '/home/humebc/projects/parky/busted_analyses'
+    local_dirs_dir = '/home/humebc/projects/parky/local_alignments'
 
 
+    # The HYPHYMP executable relies on some sort of relative file but I can't find out which one
+    # as such we will have to change dir to the HYPHY_idr in order to be able to invoke the program.
+    HYPHYMP_path = '/home/humebc/phylogeneticsSoftware/hyphy/hyphy-2.3.13/HYPHYMP'
+    HYPHY_dir = '/home/humebc/phylogeneticsSoftware/hyphy/hyphy-2.3.13'
+    for ortholog_id in iter(input_queue.get, 'STOP'):
+
+        # First check to see that the alignment is good
+        orig_align_path = '{0}/{1}/{1}.cropped_aligned_cds.fasta'.format(local_dirs_dir, ortholog_id)
+        with open(orig_align_path, 'r') as f:
+            orig_fasta = [line.rstrip() for line in f]
+
+        if len(orig_fasta[1]) < 2:
+            # then the fasta is bad and we should move onto the next directory and ignore this one.
+            continue
 
 
+        sys.stdout.write('\rRunning BUSTED analysis on ortholog: {}'.format(ortholog_id))
+        tree_file = '({0}_ppsyg:0.01524804457090833502,({0}_min:0.00305561548082329418,{0}_pmin:0.00350296114601793013)' \
+                    ':0.03350192310501232812,{0}_psyg:0.01618135662493049715);'.format(ortholog_id)
+
+        wkd = '{}/{}'.format(busted_analyses_dir, ortholog_id)
+        os.makedirs(wkd, exist_ok=True)
+
+        # write out the tree to the busted analysis directory in question
+        tree_path = '{}/{}_tree.nwk'.format(wkd, ortholog_id)
+        with open(tree_path, 'w') as f:
+            f.write('{}\n'.format(tree_file))
+
+        # copy the cds fasta alignment from the local directory to this directory
+
+        new_align_path = '{}/{}_qced_cds_aligned.fasta'.format(wkd, ortholog_id)
+        shutil.copyfile(orig_align_path, new_align_path)
+
+        # here we now have the alignment and the tree file in the directory we want.
+
+        # now write out the text file that we will use to put in our answeres to the interactive prompts
+        answers_script = ['1', '5', '1', new_align_path, tree_path, '1']
+        answers_script_path = '{}/{}_answers'.format(wkd, ortholog_id)
+        with open(answers_script_path, 'w') as f:
+            for line in answers_script:
+                f.write('{}\n'.format(line))
+
+        # change dir to the hyphy dir
+        output_file_path = '{}/{}_results.out'.format(wkd, ortholog_id)
+        os.chdir(HYPHY_dir)
+        # HYPHYMP_cmd = './HYPHYMP < {} > {}'.format(answers_script_path, output_file_path)
+        # p = subprocess.Popen(HYPHYMP_cmd, shell=True)
+        # os.waitpid(p.pid, 0)
+        # subprocess.run(['./HYPHYMP', '<', answers_script_path, '>',  output_file_path])
+        with open(output_file_path, 'w') as output:
+            subprocess.run([HYPHYMP_path], stdout=output, input='\n'.join(answers_script) + '\n', encoding='ascii')
+
+        apples = 'adsf'
 
 
+    return
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+create_directories_and_run_busted()
 
 
