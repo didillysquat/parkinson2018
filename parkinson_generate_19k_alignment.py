@@ -6,6 +6,8 @@ import os
 import sys
 import subprocess
 from collections import defaultdict
+import itertools
+import pickle
 def readDefinedFileToList(filename):
     temp_list = []
     with open(filename, mode='r') as reader:
@@ -29,7 +31,6 @@ def writeListToDestination(destination, listToWrite):
             i += 1
 
 
-
 def convert_interleaved_to_sequencial_fasta_two(fasta_in):
     fasta_out = []
 
@@ -48,13 +49,257 @@ def convert_interleaved_to_sequencial_fasta_two(fasta_in):
     fasta_out.append(temp_seq_str)
     return fasta_out
 
+def generate_local_alignments_for_each_ortholog_two():
+    # So we were generating an alignment for the aa seqs using mafft and then cropping them
+    # However, if we are going to use neighbour to do the aligning then that automatically produces us
+    # a MAFFT alignment and allows us to screen for low scoring site that can additionally be translated
+    # into removal of uncertain columns.
+    # similar to how we were creating a directory for each of the aa_seqs we will do the same thing for
+    # each of the orthologs.
+
+    # the cds sequences
+    cds_seq_df = pd.read_csv('/home/humebc/projects/parky/cds_seq_multi_orf_orths__partial_cdsfixed.csv', sep=',', lineterminator='\n',
+                             index_col=0, header=0)
+
+    # the list of species for each ortholog
+    spp_list = [spp for spp in list(cds_seq_df)]
+
+
+    #we will need a directory for each of the orthologs
+    # in each directory we will have a cds fasta
+    # to MP this we can simply give a list of the directories and get the ortholog ID from the directory name
+
+    # for each ortholog, create directory and write in the fasta of the cds then pass the directory to the MP list
+
+    MP_list = []
+
+
+    for row_index in cds_seq_df.index.values.tolist():
+        temp_fasta = []
+        sys.stdout.write('\rGenerating fasta for ortholog {}'.format(row_index))
+
+        # populate the fasta
+        list_of_seq_names = []
+        for spp in spp_list:
+            temp_fasta.extend(['>{}_{}'.format(row_index, spp), cds_seq_df.loc[row_index, spp]])
+            list_of_seq_names.append('{}_{}'.format(row_index, spp))
+        # write out the fasta into the  directory
+        base_dir = '/home/humebc/projects/parky/local_alignments/{0}/'.format(row_index)
+        path_to_fasta = '/home/humebc/projects/parky/local_alignments/{0}/unaligned_cds_{0}.fasta'.format(row_index)
+        os.makedirs(base_dir, exist_ok=True)
+        with open(path_to_fasta, 'w') as f:
+            for line in temp_fasta:
+                f.write('{}\n'.format(line))
+
+        # add the fasta full path to the MP list
+        MP_list.append((path_to_fasta, list_of_seq_names))
+
+
+
+
+    # creating the MP input queue
+    ortholog_input_queue = Queue()
+
+    # populate with one key value pair per ortholog
+    for fasta_tup in MP_list:
+        ortholog_input_queue.put(fasta_tup)
+
+    num_proc = 24
+
+    # put in the STOPs
+    for N in range(num_proc):
+        ortholog_input_queue.put('STOP')
+
+    allProcesses = []
+
+
+    # Then start the workers
+    for N in range(num_proc):
+        p = Process(target=guidance_worker, args=(ortholog_input_queue,))
+        allProcesses.append(p)
+        p.start()
+
+    for p in allProcesses:
+        p.join()
+
+        # here we have the cds and the aa alignments cropped and written out
+        # we can then use these as input into CODEML and the BUSTED programs
+        # and to run the model calls for making the tree with.
+
+def guidance_worker(input_queue):
+    for fasta_tup in iter(input_queue.get, 'STOP'):
+        fasta_file_full_path, seq_names = fasta_tup
+        ortholog_id = fasta_file_full_path.split('/')[-2]
+        sys.stdout.write('\rPerforming Guidance for {}'.format(ortholog_id))
+        guidance_full_path = '/home/humebc/phylogeneticsSoftware/guidance2/guidance.v2.02/www/Guidance/guidance.pl'
+        output_dir_full_path = '/'.join(fasta_file_full_path.split('/')[:-1])
+
+        # check to see if guidance has already been completed
+
+        # if os.path.isfile('{}/{}.cropped_aligned_cds.fasta'.format(output_dir_full_path, ortholog_id)):
+        #     continue
+
+        # subprocess.run(['perl', guidance_full_path, '--seqFile',
+        #                 fasta_file_full_path, '--msaProgram', 'MAFFT', '--seqType',
+        #                 'codon', '--outDir', output_dir_full_path, '--bootstraps', '10', '--outOrder', 'as_input',
+        #                 '--colCutoff', '0.6', '--dataset', ortholog_id], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+        # # at this point we should have performed the guidance analysis
+        # # we can now read in the cols that should be removed from the cds and aa alignments
+        # cols_to_remove_cds = []
+        # cds_cols_to_remove_file_path = 'Seqs.Orig_DNA.fas.FIXED.{}.MAFFT.Removed_Col'.format(ortholog_id)
+        # with open(cds_cols_to_remove_file_path, 'r') as f:
+        #     cds_col_file_list = [line.rstrip() for line in f]
+        # for line in cds_col_file_list:
+        #     cols_to_remove_cds.append(int(line.split()[2]))
+
+        # at this point we should have performed the guidance analysis
+        # we can now read in the scores for each aa residue and drop any alignment columns
+        # that have only -na scores or contain a score < the cutoff which is 0.6
+        # we will be working in sets of four because there are four sequences. Each column
+        # we find to delte in this aa score matrix will represent three columns to be dropped
+        # in the cds alignment.
+        # also, bear in mind that the columns of the alignment are not 0 indexed but start at 1
+        # we will have to take this into account when working out which columns of the alignments to drop
+
+        cols_to_remove_aa = []
+        aa_cols_score_file_path = '{}/{}.MAFFT.Guidance2_res_pair_res.PROT.scr'.format(output_dir_full_path, ortholog_id)
+
+        with open(aa_cols_score_file_path, 'r') as f:
+            aa_col_score_file_list = [line.rstrip() for line in f][1:]
+
+        for i in range(int(len(aa_col_score_file_list)/4)):
+
+            socres_set = []
+            # get a list of the scores for each position
+            # for j in range(i, i+4, 1):
+            #     scores_set.append()
+            # the range that represents i and the next three i s in the iteration without increasing i
+            file_line_indices = [i*4 + k for k in range(4)]
+            scores_set = [float(aa_col_score_file_list[j].split()[2]) if '-nan' not in aa_col_score_file_list[j] else '-nan' for j in file_line_indices]
+
+            # now examine what is in the score sets
+
+            drop = False
+            nan_count = 0
+            for score in scores_set:
+                if score != '-nan':
+                    if score < 0.6:
+                        drop = True
+                        break
+                elif score == '-nan':
+                    nan_count += 1
+                else:
+                    continue
+            # when we come out ned to check if the nan_score == 4
+            if nan_count == 4:
+                drop = True
+
+
+            # if drop = True then this is a column to drop
+            if drop:
+                cols_to_remove_aa.append(i)
+
+        # here we have a 0 based list of the columns that need to be dropped from the aa alignment
+        # convert this to a 0 based index of the columns that need to be dropped from the cds alignment
+        cols_to_remove_cds = []
+        for col_index in cols_to_remove_aa:
+            cols_to_remove_cds.extend([col_index*3 + n for n in range(3)])
+
+        # here we have the indices that need to be dropped for the cds and aa alignments
+        # now read in the alignments as 2D lists, convert to pandas dataframe and perform the columns drops
+
+        # aa first
+        aa_alignment_file_path = '{}/{}.MAFFT.PROT.aln'.format(output_dir_full_path, ortholog_id)
+        with open(aa_alignment_file_path, 'r') as f:
+            aa_alignment_file_list = convert_interleaved_to_sequencial_fasta_two([line.rstrip() for line in f])
+        aa_df = pd.DataFrame([list(line) for line in aa_alignment_file_list if not line.startswith('>')])
+
+        # now drop the columns
+        columns_to_keep_aa = [col for col in list(aa_df) if col not in cols_to_remove_aa]
+        aa_df = aa_df[columns_to_keep_aa]
+
+        # cds second
+        cds_alignment_file_path = '{}/{}.MAFFT.aln'.format(output_dir_full_path, ortholog_id)
+        with open(cds_alignment_file_path, 'r') as f:
+            cds_alignment_file_list = convert_interleaved_to_sequencial_fasta_two([line.rstrip() for line in f])
+        cds_df = pd.DataFrame([list(line) for line in cds_alignment_file_list if not line.startswith('>')])
+
+        # now drop the columns
+        columns_to_keep_cds = [col for col in list(cds_df) if col not in cols_to_remove_cds]
+        cds_df = cds_df[columns_to_keep_cds]
+
+        # here we have the cds and aa dfs that we can now do the cropping with and then finally write back out as
+        # fasta files
+        # go from either end deleting any columns that have a gap
+
+        # aa first
+        aa_df = crop_fasta_df(aligned_fasta_as_pandas_df_to_crop = aa_df)
+
+        # cds second
+        cds_df = crop_fasta_df(aligned_fasta_as_pandas_df_to_crop = cds_df)
+
+        # now we just need to write out dfs
+        aa_fasta_list = pandas_df_to_fasta(pd_df=aa_df, seq_names=seq_names)
+        with open('{}/{}.cropped_aligned_aa.fasta'.format(output_dir_full_path, ortholog_id), 'w') as f:
+            for line in aa_fasta_list:
+                f.write('{}\n'.format(line))
+
+        cds_fasta_list = pandas_df_to_fasta(pd_df=cds_df, seq_names=seq_names)
+        with open('{}/{}.cropped_aligned_cds.fasta'.format(output_dir_full_path, ortholog_id), 'w') as f:
+            for line in cds_fasta_list:
+                f.write('{}\n'.format(line))
+
+        # here we have the cds and the aa alignments cropped and written out
+        # we can then use these as input into CODEML and the BUSTED programs
+
+
+def pandas_df_to_fasta(pd_df, seq_names):
+    temp_fasta = []
+    for i in range(len(seq_names)):
+        temp_fasta.extend(['>{}'.format(seq_names[i]), ''.join(list(pd_df.loc[i]))])
+    return temp_fasta
+
+
+def crop_fasta_df(aligned_fasta_as_pandas_df_to_crop):
+    columns_to_drop = []
+    for i in list(aligned_fasta_as_pandas_df_to_crop):
+        # if there is a gap in the column at the beginning
+        if '-' in list(aligned_fasta_as_pandas_df_to_crop[i]) or '*' in list(aligned_fasta_as_pandas_df_to_crop[i]):
+            columns_to_drop.append(i)
+        else:
+            break
+    for i in reversed(list(aligned_fasta_as_pandas_df_to_crop)):
+        # if there is a gap in the column at the end
+        if '-' in list(aligned_fasta_as_pandas_df_to_crop[i]) or '*' in list(aligned_fasta_as_pandas_df_to_crop[i]):
+            columns_to_drop.append(i)
+        else:
+            break
+
+    # get a list that is the columns indices that we want to keep
+    col_to_keep = [col_index for col_index in list(aligned_fasta_as_pandas_df_to_crop) if col_index not in columns_to_drop]
+    # drop the gap columns
+    return aligned_fasta_as_pandas_df_to_crop[col_to_keep]
+
 
 def generate_local_alignments_for_each_ortholog():
+    #TODO So we were generating an alignment for the aa seqs using mafft and then cropping them
+    #However, if we are going to use neighbour to do the aligning then that automatically produces us
+    # a MAFFT alignment and allows us to screen for low scoring site that can additionally be translated
+    # into removal of uncertain columns.
+    # similar to how we were creating a directory for each of the aa_seqs we will do the same thing for
+    # each of the orthologs.
+
+
     # the amino acid sequences
     aa_seq_array = pd.read_csv('/home/humebc/projects/parky/aa_seq_multi_orf_orths_fixed.csv', sep=',', lineterminator='\n', index_col=0, header=0)
 
     # the gene IDs
     gene_id_array = pd.read_csv('/home/humebc/projects/parky/gene_id_fixed.csv', sep=',', lineterminator='\n', index_col=0, header=0)
+
+    # the cds sequences
+    cds_seq_df = pd.read_csv('/home/humebc/projects/parky/gene_id_fixed.csv', sep=',', lineterminator='\n',
+                                index_col=0, header=0)
 
     # the row and column headings should be the same for both arrays so we can iterate both at the same time
     # for each row
@@ -346,7 +591,185 @@ def prottest_worker(input_queue):
 
 
 
-concatenate_local_alignments()
+def generate_master_phylip_alignments_for_CODEML():
+    ''' The documentation for what format the files should be in for submitting to PAML/CODEML are not so
+    great. But from some testing and looking through the examples that are available two things seem to be key
+    1 - automatic pairwise comparisons of sequences can be performed using the runmode as -2
+    2 - a blocked alignment format is the easiest way to test all of the orthologs at once but unlike
+    in the documentation, (using the G marker) this is easiest done by simply having a phymil alignment format
+    one after another in succestion in a sinlge file and then setting the ndata setting to how ever many
+    sets of aligments you have (about 19K for us). I've run some tests and this all seems to be running well.
+    Unfortunately, the only way to MP this seems to be physically splitting up the data and running multiple
+    instance of the CODEML executable.
+    So... with this in mind, I will split up the 19K or so sequences into phylip alignments of 1000 sequences.
+    I will then make respective control files for each of these, put them in their own directory and then set
+    an instance of the CODEML running for each of these.'''
+
+
+    spp_list = ['min', 'pmin', 'psyg', 'ppsyg']
+    # for each pairwise comparison of the species
+    wkd = '/home/humebc/projects/parky/local_alignments'
+    output_dir = '/home/humebc/projects/parky/guidance_analyses'
+    list_of_guidance_dirs = []
+    # set that will hold the ID of any orthologs that have dud alignments
+    len_zero_dir_list = []
+    # counter that we'll use to split into 20 roughly 1k sequence alignments
+    counter = 0
+    block_counter = 0
+
+    # for each directory or ortholog
+    list_of_dirs = list()
+    for root, dirs, files in os.walk(wkd):
+        list_of_dirs = dirs
+        break
+    for dir in list_of_dirs:
+
+        sys.stdout.write('\rOrtholog: {}     {}/{}'.format(dir, counter, len(list_of_dirs)))
+
+        # make a new alignment file for every 1000 individual alignments
+        if counter % 1000 == 0:
+            if block_counter != 0:
+
+                # then we already have a block that needs writing
+                seq_file_ctrl_file_tup = write_out_cntrl_and_seq_file(block_counter=block_counter, output_dir=output_dir,
+                                             phylip_alignment=phylip_alignment, num_align=1000)
+                list_of_guidance_dirs.append(seq_file_ctrl_file_tup)
+            # once the old block is written out start a new one
+            block_counter += 1
+            os.makedirs('{}/block_{}'.format(output_dir, block_counter), exist_ok=True)
+            print('\n\nStarting block {}'.format(block_counter))
+            phylip_alignment = []
+
+        # add single to block master alignment
+        # if the fasta was empty then this will return False
+        single_phylip = generate_phylip_from_fasta(dir, wkd)
+
+        if single_phylip:
+            phylip_alignment.extend(single_phylip)
+            counter += 1
+        else:
+            # if the fasta was empty then log this and don't add anything to the counter
+            len_zero_dir_list.append(dir)
+    # now write out the final block of alignments
+    seq_file_ctrl_file_tup = write_out_cntrl_and_seq_file(block_counter, output_dir, phylip_alignment, num_align=len(list_of_dirs)-len(len_zero_dir_list)-(1000*(block_counter-1)))
+    list_of_guidance_dirs.append(seq_file_ctrl_file_tup)
+
+    pickle.dump(list_of_guidance_dirs, open( '{}/list_of_guidance_dirs.pickle'.format(output_dir), "wb" ))
+
+def generate_phylip_from_fasta(dir, wkd):
+    temp_str = str()
+    temp_list = list()
+
+    with open('{}/{}/{}.cropped_aligned_cds.fasta'.format(wkd, dir, dir), 'r') as f:
+        fasta_file = [line.rstrip() for line in f]
+
+    if len(fasta_file[1]) == 0:
+        # if the fasta is empty then we need to log this outside
+        return False
+    else:
+        for line in fasta_file:
+            if line.startswith('>'):
+                temp_str = line[1:]
+            else:
+                temp_list.append('{}    {}'.format(temp_str, line))
+        # finally put in the header file
+        temp_list.insert(0, '\t{} {}'.format(len(temp_list), len(fasta_file[1])))
+
+        return temp_list
+
+
+def write_out_cntrl_and_seq_file(block_counter, output_dir, phylip_alignment, num_align):
+    # write out the control file specific to this alignment
+    ctrl_file_path = write_out_control_file(
+        output_dir='{}/block_{}'.format(output_dir, block_counter),
+        num_alignments=num_align,
+        grp=block_counter)
+    # write out the phylip file
+    seq_file_path = '{}/block_{}/block_{}_cds.phylip'.format(output_dir, block_counter, block_counter)
+    with open(seq_file_path, 'w') as f:
+        for line in phylip_alignment:
+            f.write('{}\n'.format(line))
+    # write out the tree file
+    tree_file = '(ppsyg:0.01524804457090833502,(min:0.00305561548082329418,pmin:0.00350296114601793013)' \
+                ':0.03350192310501232812,psyg:0.01618135662493049715);'
+    tree_file_path = '{}/block_{}/block_{}_tree.nwk'.format(output_dir, block_counter, block_counter)
+    with open(tree_file_path, 'w') as f:
+        f.write('{}\n'.format(tree_file))
+
+    return (seq_file_path, ctrl_file_path, tree_file_path)
+
+def write_out_control_file(output_dir, num_alignments, grp):
+    seq_file_path = '{}/block_{}_cds.phylip'.format(output_dir, grp)
+    out_file_path = '{}/block_{}_guidance_results.out'.format(output_dir, grp)
+    ctrl_path     = '{}/block_{}_cds.ctrl'.format(output_dir, grp)
+    tree_file_path = '{}/block_{}/block_{}_tree.nwk'.format(output_dir, grp, grp)
+    ctrl_file = [
+    'seqfile = {}'.format(seq_file_path),
+    'treefile = {}'.format(tree_file_path),
+    'outfile = {}'.format(out_file_path),
+    'runmode = -2',
+    'seqtype = 1',
+    'CodonFreq = 2',
+    'ndata = {}'.format(num_alignments),
+    'clock = 0',
+    'model = 0',
+    'NSsites = 0',
+    'icode = 0',
+    'fix_omega = 0',
+    'omega = .4',
+    'cleandata = 0'
+    ]
+
+    with open(ctrl_path, 'w') as f:
+        for line in ctrl_file:
+            f.write('{}\n'.format(line))
+
+    return ctrl_path
+
+def run_CODEML_analyses():
+    ''' We should read in the tuples that contain the seq files and cntrl file
+    from the pickled files that were written out from generate_master_phlip_alignments_for_CODEML
+    We should then start an MP list with each of these tuples in
+    In the worker we should go to each directory and start an anlysis
+    The 20000 sequences were broken into 20 chunks so we should start 20 subprocess instances and
+    have a one CODEML analysis run in each'''
+
+    tup_of_dirs_list = pickle.load( open( '/home/humebc/projects/parky/guidance_analyses/list_of_guidance_dirs.pickle', "rb" ))
+
+    input_queue = Queue()
+
+    for tup in tup_of_dirs_list:
+        input_queue.put(tup)
+
+    num_proc = 1
+
+    for i in range(num_proc):
+        input_queue.put('STOP')
+
+    list_of_processes = []
+    for N in range(num_proc):
+        p = Process(target=CODEML_run_worker, args=(input_queue,))
+        list_of_processes.append(p)
+        p.start()
+
+    for p in list_of_processes:
+        p.join()
+
+
+def CODEML_run_worker(input_queue):
+    CODEML_path = '/home/humebc/phylogeneticsSoftware/paml/paml4.9h/bin/codeml'
+    for dir_tup in iter(input_queue.get, 'STOP'):
+        seq_file_path, ctrl_file_path, tree_file_path = dir_tup
+
+        wkd = os.path.dirname(seq_file_path)
+
+        os.chdir(wkd)
+
+        subprocess.run([CODEML_path, ctrl_file_path])
+
+
+
+run_CODEML_analyses()
 
 
 
