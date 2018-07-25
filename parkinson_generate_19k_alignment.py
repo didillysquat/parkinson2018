@@ -651,6 +651,11 @@ def generate_master_phylip_alignments_for_CODEML():
         else:
             # if the fasta was empty then log this and don't add anything to the counter
             len_zero_dir_list.append(dir)
+    # write out a list of the poorl alignement orfs
+    with open('post_guidance_0_len_cds_alignments_orthologs.txt', 'w') as f:
+        for line in len_zero_dir_list:
+            f.write('{}\n'.format(line))
+
     # now write out the final block of alignments
     seq_file_ctrl_file_tup = write_out_cntrl_and_seq_file(block_counter, output_dir, phylip_alignment, num_align=len(list_of_dirs)-len(len_zero_dir_list)-(1000*(block_counter-1)))
     list_of_guidance_dirs.append(seq_file_ctrl_file_tup)
@@ -822,6 +827,11 @@ def BUSTED_MP_worker(input_queue):
     HYPHY_dir = '/home/humebc/phylogeneticsSoftware/hyphy/hyphy-2.3.13'
     for ortholog_id in iter(input_queue.get, 'STOP'):
 
+        # First check to see if the busted processing has already been done for this ortholog
+        # if it has then skip onto the next one.
+        if os.path.isfile('{0}/{1}/{1}_qced_cds_aligned.fasta.BUSTED.json'.format(busted_analyses_dir, ortholog_id)):
+            continue
+
         # First check to see that the alignment is good
         orig_align_path = '{0}/{1}/{1}.cropped_aligned_cds.fasta'.format(local_dirs_dir, ortholog_id)
         with open(orig_align_path, 'r') as f:
@@ -872,6 +882,162 @@ def BUSTED_MP_worker(input_queue):
 
 
     return
+
+def summarise_CODEML_pairwise_analyses():
+    ''' Here we will go through each of the block analyses and take out the pairwise dn/ds analyses and put
+    them into a single pandas dataframe. The ortholog will the index (which we will evenutally sort) and the
+    columns will be each of the pairwise comparisons.'''
+
+    block_analysis_base_dir = '/home/humebc/projects/parky/guidance_analyses'
+
+    list_of_dirs = list()
+    for root, dirs, files in os.walk(block_analysis_base_dir):
+        list_of_dirs = dirs
+        break
+
+    # we will create a index system for the columns so that each pairwise difference will be in a specific column
+    # of the df that we are going to create
+    # col1 = min_pmin
+    # col2 = min_psyg
+    # col3 = min_ppsyg
+    # col4 = pmin_psyg
+    # col5 = pmin_ppsyg
+    # col6 = psyg_ppsyg
+
+    comparisons = ['min_pmin', 'min_psyg', 'min_ppsyg', 'pmin_psyg', 'pmin_ppsyg', 'psyg_ppsyg']
+    df = pd.DataFrame(columns=comparisons)
+    count = 0
+    # the list that we will hold the info for a single row in
+    dict_of_dnns_values = {}
+    for block_dir in list_of_dirs:
+        sys.stdout.write('\n\nProcessing block {}\n\n'.format(block_dir))
+        # read in the file for this block and populate the df with the dN/dS videos
+        with open('{0}/{1}/{1}_guidance_results.out'.format(block_analysis_base_dir, block_dir), 'r') as f:
+            out_file = [line.rstrip() for line in f]
+
+        # go line by line through the output file picking up the dnds values and putting them into the df
+        for i in range(len(out_file)):
+            if 'Data set' in out_file[i]:
+                sys.stdout.write('\rProcessing {}'.format(out_file[i]))
+            # see if the line in question contains dnds values
+            if 'dN/dS=' in out_file[i]:
+                # check to see if we have populated a row worth of dnds values
+                # if so, populate the df and then start a new row list to collect values in
+                if count % 6 == 0 and count != 0:
+                    # then we should have a set of dnds values that we can append to the df
+                    df.loc[int(ortholog_id)] = [dict_of_dnns_values[pair] for pair in comparisons]
+                    dict_of_dnns_values = {}
+
+                # when we are here we are either adding one more value to an already exisiting set
+                # or we are starting a brand new set
+
+                # get the dn/ds value and the pair that we are working with
+                dn_ds_value = float(out_file[i].split()[7])
+                orth_and_pair_info_line = out_file[i-4]
+                pair_one = orth_and_pair_info_line.split()[1]
+                pair_two = orth_and_pair_info_line.split()[4]
+                ortholog_id = pair_one.split('_')[0][1:]
+                spp_one = pair_one.split('_')[1][:-1]
+                spp_two = pair_two.split('_')[1][:-1]
+
+                if '{}_{}'.format(spp_one, spp_two) in comparisons:
+                    dict_of_dnns_values['{}_{}'.format(spp_one, spp_two)] = dn_ds_value
+                else:
+                    dict_of_dnns_values['{}_{}'.format(spp_two, spp_one)] = dn_ds_value
+
+                count += 1
+    # finally add the last set of dn/ds data to the df
+    df.loc[int(ortholog_id)] = [dict_of_dnns_values[pair] for pair in comparisons]
+    pickle.dump( df, open('{}/CODEML_dnds_pairwise_pandas_df.pickle'.format(block_analysis_base_dir), 'wb'))
+
+    apples = 'asdf'
+
+def generate_summary_stats_for_CODEML_analysis():
+    block_analysis_base_dir = '/home/humebc/projects/parky/guidance_analyses'
+
+    df = pickle.load( open('{}/CODEML_dnds_pairwise_pandas_df.pickle'.format(block_analysis_base_dir), 'rb'))
+    df.sort_index(inplace=True)
+
+    comparisons = ['min_pmin', 'min_psyg', 'min_ppsyg', 'pmin_psyg', 'pmin_ppsyg', 'psyg_ppsyg']
+
+    # # list of orthologs with at least one dnds > 1
+    # list_of_orthologs_with_some = []
+    # # list of orthologs with only one
+    # list_of_orth_with_one = []
+    # # list of orthologs with only two
+    # list_of_orth_with_two = []
+    # # list of orthologs with only three
+    # list_of_orth_with_three = []
+    # # list of orthologs with only four
+    # list_of_orth_with_four = []
+    count_dict = defaultdict(list)
+
+    # # list of min_pmin
+    # list_of_min_pmin = []
+    # # list_of_min_psyg
+    # list_of_min_psyg = []
+    # # list_of_min_ppsyg
+    # list_of_min_ppsyg = []
+    # # list of pmin_psyg
+    # list_of_pmin_psyg = []
+    # # list of pmin_ppsyg
+    # list_of_pmin_ppsyg = []
+    # #list of psyg_ppsyg
+    # list_of_psyg_ppsyg = []
+    pairwise_dict = defaultdict(list)
+
+    total_count = 0
+    for index in df.index.values.tolist():
+        sys.stdout.write('\rProcessing index: {}'.format(index))
+        count = 0
+        for comp in comparisons:
+            if df.loc[index, comp] > 1 and df.loc[index, comp] != float(99):
+                count +=1
+                total_count += 1
+                pairwise_dict[comp].append(index)
+        count_dict[count].append(index)
+
+    f = open('CODEML_output_info', 'w')
+
+    print('PAIRWISE COUNTS:')
+    f.write('PAIRWISE COUNTS:\n')
+    for comp in comparisons:
+        print('{}: {}'.format(comp, len(pairwise_dict[comp])))
+        f.write('{}: {}\n'.format(comp, len(pairwise_dict[comp])))
+    print('\n\nCOUNTS')
+    f.write('\n\nCOUNTS\n')
+    count = 0
+    for i in [1,2,3,4, 5, 6]:
+        print('Orthologs with {} ORF dN/dS > 1: {} '.format(i, len(count_dict[i])))
+        f.write('Orthologs with {} ORF dN/dS > 1: {} \n'.format(i, len(count_dict[i])))
+        count += len(count_dict[i])
+    print('\n\nNumber of orthologs with at least one >1 dN/dS scoring ORF: {}'.format(count))
+    f.write('\n\nNumber of orthologs with at least one >1 dN/dS scoring ORF: {}\n'.format(count))
+    f.close()
+
+    apples = 'asdf'
+
+def summarise_BUSTED_pairwise_analyses():
+    busted_base_dir = '/home/humebc/projects/parky/busted_analyses'
+
+    list_of_dirs = list()
+    for root, dirs, files in os.walk(busted_base_dir):
+        list_of_dirs = dirs
+        break
+
+    df = pd.DataFrame(columns=['dN/dS_score'])
+    for dir in list_of_dirs:
+        with open('{}/{}_results.out'.format(busted_base_dir, dir)) as f:
+            output_file = [line.rstrip() for line in f]
+
+        for i in range(len(output_file)):
+            if 'MATRIX' in output_file[i]:
+                ortholog_id = output_file[i+1].split('_').lstrip()[1:]
+            if 'Likelihood ratio test for episodic' in output_file[i]:
+                p_value_float = float(output_file[i].split()[-1][:-3])
+
+    # here we have the p value and the ortholog id so we can now put these into the df
+    df.loc[int(ortholog_id)] = p_value_float
 
 create_directories_and_run_busted()
 
