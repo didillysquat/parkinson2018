@@ -44,7 +44,7 @@ def do_the_work():
 
 
     multi_orf_counter = 0
-    fixed_counter = 0
+
 
     # read in the predicted orfs
     # read in the orf aa files for each of the four species
@@ -73,6 +73,7 @@ def do_the_work():
 
         pickle.dump( comp_to_orfs_dict_holder_list, open('{}/comp_to_orfs_dict_holder_list.pickled'.format(base_dir), 'wb'))
         pickle.dump(orf_to_aa_dict_holder_list, open('{}/orf_to_aa_dict_holder_list.pickled'.format(base_dir), 'wb'))
+
     # Here we will do the same as above but for the codon sequences.
     # we will create both the com to orf dict and the orf to cds dict.
     # in theory the comp to orf dict should be eactly the same for the cds file as it was for the aa file
@@ -123,90 +124,7 @@ def do_the_work():
     # this is a row we will need to do the computation on to figure out which ORFs should be in the alignment
     mp_list = []
 
-    to_check = ['19500',
-    '4951',
-    '8792',
-    '20722',
-    '12233',
-    '24582',
-    '5946',
-    '1801',
-    '9166',
-    '10603',
-    '15832',
-    '19852',
-    '19855',
-    '22697',
-    '2585',
-    '10298',
-    '28648',
-    '2993',
-    '9337',
-    '11557',
-    '15827',
-    '18834',
-    '26852',
-    '15513',
-    '17721',
-    '18533',
-    '25731',
-    '10125',
-    '2433',
-    '6959',
-    '8825',
-    '25853',
-    '9190',
-    '573',
-    '1610',
-    '4436',
-    '5378',
-    '5574',
-    '7791',
-    '9174',
-    '9466',
-    '11846',
-    '13559',
-    '16246',
-    '17825',
-    '18684',
-    '19263',
-    '19730',
-    '20187',
-    '21065',
-    '21139',
-    '21920',
-    '23581',
-    '3512',
-    '7544',
-    '8132',
-    '9067',
-    '10597',
-    '10936',
-    '10959',
-    '19700',
-    '20867',
-    '22229',
-    '24291',
-    '25369',
-    '26092',
-    '1575',
-    '5137',
-    '8406',
-    '8926',
-    '15224',
-    '17269',
-    '18654',
-    '24594',
-    '24819',
-    '1055',
-    '1540',
-    '4260',
-    '11060',
-    '11572',
-    '13184',
-    '13466',
-    '28166']
-    broke = 0
+
     #  N.B. we have a problem here in that some of the CDS sequences are not 3%0.
     # On first inspection it appears that 83 of the orthologs have CDS seqs that are not 3%0.
     # 77 of these happen to be comps that have multi ORFs with 6 not having multi-ORFs
@@ -279,7 +197,7 @@ def do_the_work():
                 ortholog_indices_to_drop.append(index)
 
 
-    #TODO here we need to make some changes. The dN/dS analysis that we are going to perform will be based on
+    #here we need to make some changes. The dN/dS analysis that we are going to perform will be based on
     # codon-based DNA sequences rather than amino acid seuences. As such we will need to have some way of
     # correcting the cds dataframe as well as the AA dataframe.
     num_proc = 20
@@ -350,7 +268,6 @@ def do_the_work():
 
     # here we should have a dict with the chosen sequences in and that's really what we were after.
     apples = 'asdf'
-
 
 def convert_interleaved_to_sequencial_fasta_two(fasta_in):
     fasta_out = []

@@ -592,7 +592,7 @@ def prottest_worker(input_queue):
 
 
 
-def generate_master_phylip_alignments_for_CODEML():
+def generate_block_phylip_alignments_for_CODEML():
     ''' The documentation for what format the files should be in for submitting to PAML/CODEML are not so
     great. But from some testing and looking through the examples that are available two things seem to be key
     1 - automatic pairwise comparisons of sequences can be performed using the runmode as -2
@@ -957,7 +957,7 @@ def generate_summary_stats_for_CODEML_analysis():
 
     df = pickle.load( open('{}/CODEML_dnds_pairwise_pandas_df.pickle'.format(block_analysis_base_dir), 'rb'))
     df.sort_index(inplace=True)
-
+    df.to_csv('/home/humebc/projects/parky/guidance_analyses/CODEML_dN_dS.csv')
     comparisons = ['min_pmin', 'min_psyg', 'min_ppsyg', 'pmin_psyg', 'pmin_ppsyg', 'psyg_ppsyg']
 
     # # list of orthologs with at least one dnds > 1
@@ -997,7 +997,7 @@ def generate_summary_stats_for_CODEML_analysis():
                 pairwise_dict[comp].append(index)
         count_dict[count].append(index)
 
-    f = open('CODEML_output_info', 'w')
+    f = open('{}/CODEML_dN_dS_results.txt'.format(block_analysis_base_dir), 'w')
 
     print('PAIRWISE COUNTS:')
     f.write('PAIRWISE COUNTS:\n')
@@ -1017,7 +1017,7 @@ def generate_summary_stats_for_CODEML_analysis():
 
     apples = 'asdf'
 
-def summarise_BUSTED_pairwise_analyses():
+def summarise_BUSTED_analyses():
     busted_base_dir = '/home/humebc/projects/parky/busted_analyses'
 
     list_of_dirs = list()
@@ -1025,20 +1025,82 @@ def summarise_BUSTED_pairwise_analyses():
         list_of_dirs = dirs
         break
 
-    df = pd.DataFrame(columns=['dN/dS_score'])
+    manager = Manager()
+    managed_list = manager.list()
+
+    input_queue = Queue()
+
     for dir in list_of_dirs:
-        with open('{}/{}_results.out'.format(busted_base_dir, dir)) as f:
+        input_queue.put(dir)
+
+    num_proc = 40
+
+    for i in range(num_proc):
+        input_queue.put('STOP')
+
+    list_of_processes = []
+    for N in range(num_proc):
+        p = Process(target=collect_busted_MP_worker, args=(input_queue,managed_list))
+        list_of_processes.append(p)
+        p.start()
+
+    for p in list_of_processes:
+        p.join()
+
+
+
+
+    df = pd.DataFrame([tup[1] for tup in list(managed_list)], columns=['p_value_div_selct'], index=[tup[0] for tup in list(managed_list)])
+    # for ortholog_id, p_value_float in list(managed_list):
+    #     df.loc[int(ortholog_id)] = p_value_float
+    df.sort_index(inplace=True)
+    pickle.dump(df, open('{}/BUSTED_p_value_results.pickle'.format(busted_base_dir), 'wb'))
+    df.to_csv('{}/BUSTED_p_value_results.csv'.format(busted_base_dir))
+    apples = 'asdf'
+
+
+def collect_busted_MP_worker(input_queue, managed_list):
+    busted_base_dir = '/home/humebc/projects/parky/busted_analyses'
+    for directory in iter(input_queue.get, 'STOP'):
+        sys.stdout.write('\rCollecting ortholog for {}'.format(directory))
+        with open('{0}/{1}/{1}_results.out'.format(busted_base_dir, directory)) as f:
             output_file = [line.rstrip() for line in f]
 
         for i in range(len(output_file)):
-            if 'MATRIX' in output_file[i]:
-                ortholog_id = output_file[i+1].split('_').lstrip()[1:]
+            if output_file[i] == 'MATRIX':
+                ortholog_id = int(output_file[i + 1].split('_')[0].lstrip()[1:])
             if 'Likelihood ratio test for episodic' in output_file[i]:
                 p_value_float = float(output_file[i].split()[-1][:-3])
 
-    # here we have the p value and the ortholog id so we can now put these into the df
-    df.loc[int(ortholog_id)] = p_value_float
+        managed_list.append((ortholog_id, p_value_float))
 
-create_directories_and_run_busted()
+def summarise_busted_results_stats():
+    busted_base_dir = '/home/humebc/projects/parky/busted_analyses'
+    df = pickle.load( open('{}/BUSTED_p_value_results.pickle'.format(busted_base_dir), 'rb'))
+
+    sig_at_dict = defaultdict(list)
+
+    for index in df.index.values.tolist():
+        p_val = df.loc[index, 'p_value_div_selct']
+        if p_val < 0.05:
+            sig_at_dict[0.05].append(index)
+        if p_val < 0.01:
+            sig_at_dict[0.01].append(index)
+        if p_val < 0.001:
+            sig_at_dict[0.001].append(index)
+
+    f = open('{}/summary_stats_for_busted_p_vals.txt'.format(busted_base_dir), 'w')
+
+    print('Number of orthologs found to have significant diversifying selection at:\n\n')
+    print('p < 0.05 = {}'.format(len(sig_at_dict[0.05])))
+    print('p < 0.01 = {}'.format(len(sig_at_dict[0.01])))
+    print('p < 0.001 = {}'.format(len(sig_at_dict[0.001])))
+    f.write('Number of orthologs found to have significant diversifying selection at:\n\n')
+    f.write('p < 0.05 = {}\n'.format(len(sig_at_dict[0.05])))
+    f.write('p < 0.01 = {}\n'.format(len(sig_at_dict[0.01])))
+    f.write('p < 0.001 = {}\n'.format(len(sig_at_dict[0.001])))
+    f.close()
+
+generate_summary_stats_for_CODEML_analysis()
 
 
