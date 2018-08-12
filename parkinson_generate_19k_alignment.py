@@ -2,6 +2,7 @@ import pandas as pd
 import os
 from multiprocessing import Queue, Process, Manager, current_process
 from plumbum import local
+import matplotlib.pyplot as plt
 import os
 import sys
 import subprocess
@@ -9,6 +10,8 @@ from collections import defaultdict
 import itertools
 import pickle
 import shutil
+import json
+import re
 def readDefinedFileToList(filename):
     temp_list = []
     with open(filename, mode='r') as reader:
@@ -1101,6 +1104,173 @@ def summarise_busted_results_stats():
     f.write('p < 0.001 = {}\n'.format(len(sig_at_dict[0.001])))
     f.close()
 
-generate_summary_stats_for_CODEML_analysis()
+def summarise_BUSTED_analyses_for_creating_QC_plots():
+    ''' This is a modification from the original. I am going to go and collect some results from the buseted
+    analyses and plot them up against the p value to see if we can find what is causing all of the super low
+    p values. I want to pull out the largerst ER and the average ER (evidence ratio). I'll also have a looks
+    at the dnds ratio. We can also get the results of length of the alignments. I think a good way to do this is to
+    plot minlength of sequence, max length of sequence, and the ratio between the two. We can plot these against
+    along the x axis. SHould look like a sweet plot. I think the easiest way to pull out the info we need will be
+    to use regualr expressions and then to organise them ortholog by ortholog in a pandas df.'''
+
+    busted_base_dir = '/home/humebc/projects/parky/busted_analyses'
+
+    try:
+        df = pickle.load(open('{}/BUSTED_qc_plotting_info.pickle'.format(busted_base_dir), 'rb'))
+    except:
+        list_of_dirs = list()
+        for root, dirs, files in os.walk(busted_base_dir):
+            list_of_dirs = dirs
+            break
+
+        manager = Manager()
+        managed_list = manager.list()
+
+        input_queue = Queue()
+
+        for dir in list_of_dirs:
+            input_queue.put(dir)
+
+        num_proc = 40
+
+        for i in range(num_proc):
+            input_queue.put('STOP')
+
+        columns = ['ortholog_id', 'p_value', 'max_ER_constrained', 'av_ER_constrained',
+                   'max_ER_opt_null','av_ER_opt_null',
+                   'min_seq_length', 'max_seq_length', 'ratio_min_max', 'dn_ds']
+
+        list_of_processes = []
+        for N in range(num_proc):
+            p = Process(target=collect_busted_MP_worker_for_creating_QC_plots, args=(input_queue,managed_list, columns))
+            list_of_processes.append(p)
+            p.start()
+
+        for p in list_of_processes:
+            p.join()
+
+
+        df = pd.DataFrame(list(managed_list), columns=columns)
+        df.index = [int(a) for a in df['ortholog_id'].tolist()]
+        df.drop(labels='ortholog_id', axis='columns', inplace=True)
+        df.sort_index(inplace=True)
+        pickle.dump(df, open('{}/BUSTED_qc_plotting_info.pickle'.format(busted_base_dir), 'wb'))
+        df.to_csv('{}/BUSTED_qc_plotting_info.csv'.format(busted_base_dir))
+
+
+
+
+    fig, axarr = plt.subplots(2,2,figsize=(10,10))
+
+    non_nan_indices = df[df.iloc[:,1] != 'nan']
+    small = non_nan_indices[non_nan_indices.iloc[:, 1] < 100]
+    y = small.iloc[:,1].values.tolist()
+    x = small.iloc[:,0].values.tolist()
+    axarr[0][0].scatter(x, y, marker='.', s=1)
+    axarr[0][0].set_title('max ER constrained')
+    axarr[0][0].set_xlabel('P_value')
+    axarr[0][0].set_ylabel('ER_ratio')
+
+
+    non_nan_indices = df[df.iloc[:, 2] != 'nan']
+    small = non_nan_indices[non_nan_indices.iloc[:, 2] < 100]
+    y = small.iloc[:, 2].values.tolist()
+    x = small.iloc[:, 0].values.tolist()
+    axarr[0][1].scatter(x, y, marker='.', s=1)
+    axarr[0][1].set_title('av ER constrained')
+    axarr[0][1].set_xlabel('P_value')
+    axarr[0][1].set_ylabel('ER_ratio')
+
+    non_nan_indices = df[df.iloc[:, 3] != 'nan']
+    small = non_nan_indices[non_nan_indices.iloc[:, 1] < 100]
+    y = small.iloc[:, 3].values.tolist()
+    x = small.iloc[:, 0].values.tolist()
+    axarr[1][0].scatter(x, y, marker='.', s=1)
+    axarr[1][0].set_title('max ER opt null')
+    axarr[1][0].set_xlabel('P_value')
+    axarr[1][0].set_ylabel('ER_ratio')
+
+    non_nan_indices = df[df.iloc[:, 4] != 'nan']
+    small = non_nan_indices[non_nan_indices.iloc[:, 2] < 100]
+    y = small.iloc[:, 4].values.tolist()
+    x = small.iloc[:, 0].values.tolist()
+    axarr[1][1].scatter(x, y, marker='.', s=1)
+    axarr[1][1].set_title('max ER opt null')
+    axarr[1][1].set_xlabel('P_value')
+    axarr[1][1].set_ylabel('ER_ratio')
+
+    fig.tight_layout()
+    fig.savefig('ER_scatters.svg')
+    fig.savefig('ER_scatters.png')
+    apples = 'asdf'
+
+
+def collect_busted_MP_worker_for_creating_QC_plots(input_queue, managed_list, columns):
+    busted_base_dir = '/home/humebc/projects/parky/busted_analyses'
+    for directory in iter(input_queue.get, 'STOP'):
+        temp_collection_list = [[] for i in range(len(columns))]
+        sys.stdout.write('\rCollecting ortholog for {}'.format(directory))
+
+        # first open up the json results file and pull out the ER max ER and the pvalue
+        with open('{0}/{1}/{1}_qced_cds_aligned.fasta.BUSTED.json'.format(busted_base_dir, directory), 'r') as j:
+            json_data = json.loads(j.read())
+
+        # get ortholog id
+        temp_collection_list[0].append(directory)
+        # get p value
+        temp_collection_list[1].append(json_data['test results']['p-value'])
+
+        if json_data['Evidence Ratios']:
+            ER_const_list = json_data['Evidence Ratios']['constrained'][0]
+            # get max ER constrained
+            temp_collection_list[2].append(max(ER_const_list))
+            # get av ER constrained
+            temp_collection_list[3].append(sum(ER_const_list) / len(ER_const_list))
+
+            ER_opt_null_list = json_data['Evidence Ratios']['optimized null'][0]
+            # get max ER opt null
+            temp_collection_list[4].append(max(ER_opt_null_list))
+            # get av ER opt null
+            temp_collection_list[5].append(sum(ER_opt_null_list) / len(ER_opt_null_list))
+
+            # now get the dn/ds values
+            with open('{0}/{1}/{1}_results.out'.format(busted_base_dir, directory)) as f:
+                output_file = [line.rstrip() for line in f]
+
+            dnds_reg_ex = re.compile('Diversifying selection\s+\|\s+([0-9]+.[0-9])+')
+
+            for i in range(len(output_file)):
+                match = dnds_reg_ex.findall(output_file[i])
+                if match:
+                    temp_collection_list[-1].append(float(match[0]))
+                    break
+        else:
+            for i in [2, 3, 4, 5, -1]:
+                temp_collection_list[i].append('nan')
+        # now get the alignment values
+        with open('{0}/{1}/{1}_qced_cds_aligned.fasta'.format(busted_base_dir, directory)) as f:
+            fasta_file = [line.rstrip() for line in f]
+
+        min_val = 99999
+        max_val = 0
+        for i in range(1, len(fasta_file), 2):
+            len_seq = len(fasta_file[i].replace('-', ''))
+            if len_seq > max_val:
+                max_val = len_seq
+            if len_seq < min_val:
+                min_val = len_seq
+
+        temp_collection_list[6].append(min_val)
+        temp_collection_list[7].append(max_val)
+        temp_collection_list[8].append(min_val/max_val)
+
+
+        try:
+            output_list = [a[0] for a in temp_collection_list]
+        except:
+            apples = 'asdf'
+        managed_list.append(output_list)
+
+summarise_BUSTED_analyses_for_creating_QC_plots()
 
 
