@@ -3,6 +3,7 @@ import os
 from multiprocessing import Queue, Process, Manager, current_process
 from plumbum import local
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 import os
 import sys
 import subprocess
@@ -1202,6 +1203,72 @@ def summarise_BUSTED_analyses_for_creating_QC_plots():
     fig.tight_layout()
     fig.savefig('ER_scatters.svg')
     fig.savefig('ER_scatters.png')
+
+
+    # Now create the scatter plot that will show the lengths of the various alignments
+    # for each ortholog, use the gene id as the x value and plot the max and min alignments on one axis and then
+    # the ratio of these two on another.
+
+    fig, axarr = plt.subplots(2, 2, figsize=(10, 10), sharex=True)
+
+    plotting_tups_abs = []
+    plotting_tups_ratio = []
+
+    # get tupples that are the x, y values for the aboslute max and mins
+    for ortholog_id in df.index.values.tolist():
+        sys.stdout.write('\rGetting plotting data for {}'.format(ortholog_id))
+        plotting_tups_abs.extend(
+            [
+                (ortholog_id, df.loc[ortholog_id, 'min_seq_length']),
+                (ortholog_id, df.loc[ortholog_id, 'max_seq_length'])
+            ]
+        )
+        plotting_tups_ratio.append((ortholog_id, df.loc[ortholog_id, 'ratio_min_max']))
+
+    # plot the aboslute max and mins
+    x, y = zip(*plotting_tups_abs)
+    axarr[0][0].scatter(x, y, marker='.', s=1, c='b')
+    axarr[0][0].plot([0,30000], [3000, 3000], c='black')
+    axarr[0][0].set_ylim(0, 25000)
+    axarr[0][0].set_ylabel('alignment_length_bp')
+    axarr[0][0].set_title('max and min alignment length')
+
+
+    axarr[0][1].scatter(x, y, marker='.', s=1, c='b')
+    axarr[0][1].set_ylim(0,3000)
+
+    axarr[0][1].set_title('max and min alignment length y cropped')
+
+
+    # plot the ratio of max to min
+    x, y = zip(*plotting_tups_ratio)
+    axarr[1][0].scatter(x, y, marker='.', s=1, c='r' )
+    axarr[1][0].plot([0, 30000], [0.95, 0.95], c='black')
+    axarr[1][0].set_ylim(0, 1)
+    axarr[1][0].set_ylabel('ratio')
+    axarr[1][0].set_title('max/min ratio')
+    axarr[1][0].set_xlabel('ortholog_id')
+
+    axarr[1][1].scatter(x, y, marker='.', s=1, c='r')
+    axarr[1][1].set_ylim(0.95, 1)
+    axarr[1][1].set_xlabel('ortholog_id')
+    axarr[1][1].set_title('max/min ratio y cropped')
+
+    fig.tight_layout()
+    fig.savefig('alignment_lengths_scatters.svg')
+    fig.savefig('alignment_lengths_scatters.png')
+
+
+
+    # now lets plot the p value against the max/min ratio
+    fig, ax = plt.subplots(1, 1, figsize=(10, 10), sharex=True)
+
+    ax.scatter(x = df['p_value'], y = df['ratio_min_max'], marker='.', s=1)
+    ax.set_xlabel('p_value')
+    ax.set_ylabel('alignment length min/max ratio')
+    ax.set_title('p_value vs ratio between minimum and maximum alignment lengths per ortholog')
+    fig.savefig('p_value_vs_alignment_min_max_ratio.svg')
+    fig.savefig('p_value_vs_alignment_min_max_ratio.png')
     apples = 'asdf'
 
 
@@ -1271,6 +1338,110 @@ def collect_busted_MP_worker_for_creating_QC_plots(input_queue, managed_list, co
             apples = 'asdf'
         managed_list.append(output_list)
 
-summarise_BUSTED_analyses_for_creating_QC_plots()
+def summarise_seb_codeml_results():
+    ''' This code takes the tab delimited .txt files from Johns dropbox folder for each
+    of the species comparisons and grabs the dnds values and puts it into one big dataframe
+    so that we can compare this dataframe with the one done by me. Basically we want to compare
+    the seb results with my results and make sure that we are in agreement. I plan on doig this
+    by simply plotting an x and y scatter of the dnds scores from seb's and my anaysis.'''
+
+
+    # read in the hume dn/ds pairwise results
+    block_analysis_base_dir = '/home/humebc/projects/parky/guidance_analyses'
+
+    df_hume = pickle.load(open('{}/CODEML_dnds_pairwise_pandas_df.pickle'.format(block_analysis_base_dir), 'rb'))
+    df_hume.sort_index(inplace=True)
+
+    comparison_list = list(df_hume)
+
+    base_dir = '/home/humebc/projects/parky/parkinson_git_repo/parkinson2018'
+
+    seb_output_files = [f for f in os.listdir(base_dir) if 'anno' in f]
+
+    hume_index = df_hume.index.values.tolist()
+
+    seb_master_df = pd.DataFrame(index = hume_index, columns=comparison_list)
+    for comparison in comparison_list:
+        df_seb = pd.read_csv('anno_results_{}.txt'.format(comparison), delimiter='\t')
+
+
+        df_seb = df_seb[['geneID_orthologs', 'dNdS', 'dNdS_comparison']]
+
+        df_seb.set_index('geneID_orthologs', drop=True, inplace=True)
+
+        # drop any orthologs that aren't in the hume df
+        df_seb = df_seb.loc[hume_index]
+
+        if df_seb.index.values.tolist() == hume_index:
+            apples = 'asdf'
+            seb_master_df[comparison] = df_seb['dNdS']
+
+    # it would be super sweet if we could annotate the points that are from orthologs that originally
+    # needed fixing due to the multi ORF problem.
+    # luckily we have these listed in a file :)
+
+
+    with open('/home/humebc/projects/parky/parkinson_git_repo/parkinson2018/multi_orf_orthologs_that_needed_fixing.txt', 'r') as f:
+        ortholog_ids_that_needed_fixing_due_to_multi_orf = [int(line.rstrip()) for line in f]
+
+    # colour_dict = {}
+    # for orth_id in df_hume.index.values.tolist():
+    #     if orth_id in ortholog_ids_that_needed_fixing_due_to_multi_orf:
+    #         colour_dict[orth_id] = 'blue'
+    #     else:
+    #         colour_dict[orth_id] = 'black'
+
+    # at this point we have two dataframes one for my output and one for sebs
+    # we should now plot it up. For both of the dataframes we should have exactly the same number of cells
+    # and the same index and column values so we can do a zip
+    ben_data_list_black = []
+    seb_data_list_black = []
+    ben_data_list_blue = []
+    seb_data_list_blue = []
+
+    for orth_id in df_hume.index.values.tolist():
+        sys.stdout.write('\rPlotting info for {}'.format(orth_id))
+        if orth_id in ortholog_ids_that_needed_fixing_due_to_multi_orf:
+            ben_data_list_blue.extend(df_hume.loc[orth_id].values.tolist())
+            seb_data_list_blue.extend(seb_master_df.loc[orth_id].values.tolist())
+        else:
+            ben_data_list_black.extend(df_hume.loc[orth_id].values.tolist())
+            seb_data_list_black.extend(seb_master_df.loc[orth_id].values.tolist())
+
+
+
+
+    fig, axarr = plt.subplots(1, 2, figsize=(10, 10))
+    axarr[0].scatter(x=ben_data_list_black, y=seb_data_list_black, marker='.', s=1, color='black')
+    axarr[0].scatter(x=ben_data_list_blue, y=seb_data_list_blue, marker='.', s=3, color='blue')
+    axarr[0].set_xlabel('ben_data')
+    axarr[0].set_ylabel('seb_data')
+    axarr[0].plot([0,100], [3,3], color='black', linewidth=0.5)
+    axarr[0].plot([3,3], [0,100], color='black', linewidth=0.5)
+    axarr[0].set_title('ben_seb_dN/dS_scores')
+
+    green_rect_under = patches.Rectangle((0, 0), 1, 1, color='green', alpha=0.2)
+    axarr[1].add_patch(green_rect_under)
+    green_rect_over = patches.Rectangle((1, 1), 2, 2, color='green', alpha=0.2)
+    axarr[1].add_patch(green_rect_over)
+    red_rect_under = patches.Rectangle((0, 1), 1, 2, color='red', alpha=0.2)
+    axarr[1].add_patch(red_rect_under)
+    red_rect_over = patches.Rectangle((1, 0), 2, 1, color='red', alpha=0.2)
+    axarr[1].add_patch(red_rect_over)
+
+    axarr[1].scatter(x=ben_data_list_black, y=seb_data_list_black, marker='.', s=1, color='black')
+    axarr[1].scatter(x=ben_data_list_blue, y=seb_data_list_blue, marker='.', s=2, color='blue')
+    axarr[1].set_xlabel('ben_data')
+    axarr[1].set_ylabel('seb_data')
+    axarr[1].set_ylim(0, 3)
+    axarr[1].set_xlim(0, 3)
+    axarr[1].set_title('ben_seb_dN/dS_scores_cropped_axes')
+
+    fig.savefig('seb_ben_dnds_comparison.svg')
+    fig.savefig('seb_ben_dnds_comparison.png')
+
+    apples = 'asdf'
+
+summarise_seb_codeml_results()
 
 
