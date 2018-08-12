@@ -908,8 +908,14 @@ def summarise_CODEML_pairwise_analyses():
     # col5 = pmin_ppsyg
     # col6 = psyg_ppsyg
 
-    comparisons = ['min_pmin', 'min_psyg', 'min_ppsyg', 'pmin_psyg', 'pmin_ppsyg', 'psyg_ppsyg']
-    df = pd.DataFrame(columns=comparisons)
+    cols = ['min_pmin_dn_ds','min_pmin_dn','min_pmin_ds',
+            'min_psyg_dn_ds','min_psyg_dn','min_psyg_ds',
+            'min_ppsyg_dn_ds','min_ppsyg_dn','min_ppsyg_ds',
+            'pmin_psyg_dn_ds','pmin_psyg_dn','pmin_psyg_ds',
+            'pmin_ppsyg_dn_ds','pmin_ppsyg_dn','pmin_ppsyg_ds',
+            'psyg_ppsyg_dn_ds','psyg_ppsyg_dn' ,'psyg_ppsyg_ds']
+
+    df = pd.DataFrame(columns=cols)
     count = 0
     # the list that we will hold the info for a single row in
     dict_of_dnns_values = {}
@@ -929,31 +935,63 @@ def summarise_CODEML_pairwise_analyses():
                 # if so, populate the df and then start a new row list to collect values in
                 if count % 6 == 0 and count != 0:
                     # then we should have a set of dnds values that we can append to the df
-                    df.loc[int(ortholog_id)] = [dict_of_dnns_values[pair] for pair in comparisons]
+                    holder_list = []
+                    for col in cols:
+                        holder_list.append(dict_of_dnns_values[col])
+                    df.loc[int(ortholog_id)] = holder_list
                     dict_of_dnns_values = {}
 
                 # when we are here we are either adding one more value to an already exisiting set
                 # or we are starting a brand new set
 
                 # get the dn/ds value and the pair that we are working with
-                dn_ds_value = float(out_file[i].split()[7])
-                orth_and_pair_info_line = out_file[i-4]
-                pair_one = orth_and_pair_info_line.split()[1]
-                pair_two = orth_and_pair_info_line.split()[4]
-                ortholog_id = pair_one.split('_')[0][1:]
-                spp_one = pair_one.split('_')[1][:-1]
-                spp_two = pair_two.split('_')[1][:-1]
+                # num_reg_ex = re.compile('[0-9]+\.[0-9]+')
+                # num_reg_ex_d = re.compile('dN/dS\s*=\s*[0-9]+\.[0-9]+')
+                data_reg_ex = re.compile('dN/dS\s*=\s*([0-9]+\.[0-9]+)\s+dN\s*=\s*([0-9]+\.[0-9]+)\s+dS\s*=\s*([0-9]+\.[0-9]+)')
+                data_match = data_reg_ex.findall(out_file[i])
+                names_reg_ex = re.compile('\(([0-9]+)_([a-z]+)\).+\([0-9]+_([a-z]+)\)')
+                names_match = names_reg_ex.findall(out_file[i-4])
+                # match_other = num_reg_ex.findall(out_file[i])
+                # match_other_d = num_reg_ex_d.findall(out_file[i])
+                dn_ds_value = float(data_match[0][0])
+                dn = float(data_match[0][1])
+                ds = float(data_match[0][2])
+                if ds > 60:
+                    apples = 'asdf'
+                ortholog_id = int(names_match[0][0])
+                spp_one = names_match[0][1]
+                spp_two = names_match[0][2]
 
-                if '{}_{}'.format(spp_one, spp_two) in comparisons:
-                    dict_of_dnns_values['{}_{}'.format(spp_one, spp_two)] = dn_ds_value
+                # dn_ds_value = float(out_file[i].split()[7])
+                # dn = float(out_file[i].split()[10])
+                # ds = float(out_file[i].split()[13])
+                # orth_and_pair_info_line = out_file[i-4]
+                # pair_one = orth_and_pair_info_line.split()[1]
+                # pair_two = orth_and_pair_info_line.split()[4]
+                # ortholog_id = pair_one.split('_')[0][1:]
+                # spp_one = pair_one.split('_')[1][:-1]
+                # spp_two = pair_two.split('_')[1][:-1]
+
+
+                if '{}_{}'.format(spp_one, spp_two) in cols:
+                    dict_of_dnns_values['{}_{}_dn_ds'.format(spp_one, spp_two)] = dn_ds_value
+                    dict_of_dnns_values['{}_{}_dn'.format(spp_one, spp_two)] = dn
+                    dict_of_dnns_values['{}_{}_ds'.format(spp_one, spp_two)] = ds
                 else:
-                    dict_of_dnns_values['{}_{}'.format(spp_two, spp_one)] = dn_ds_value
+                    dict_of_dnns_values['{}_{}_dn_ds'.format(spp_two, spp_one)] = dn_ds_value
+                    dict_of_dnns_values['{}_{}_dn'.format(spp_two, spp_one)] = dn
+                    dict_of_dnns_values['{}_{}_ds'.format(spp_two, spp_one)] = ds
 
                 count += 1
     # finally add the last set of dn/ds data to the df
-    df.loc[int(ortholog_id)] = [dict_of_dnns_values[pair] for pair in comparisons]
-    pickle.dump( df, open('{}/CODEML_dnds_pairwise_pandas_df.pickle'.format(block_analysis_base_dir), 'wb'))
+    holder_list = []
+    for col in cols:
+        holder_list.append(dict_of_dnns_values[col])
+    df.loc[int(ortholog_id)] = holder_list
 
+
+    pickle.dump( df, open('{}/CODEML_dnds_dn_ds_pairwise_pandas_df.pickle'.format(block_analysis_base_dir), 'wb'))
+    df.to_csv('{}/CODEML_dnds_dn_ds_pairwise_pandas_df.csv'.format(block_analysis_base_dir))
     apples = 'asdf'
 
 def generate_summary_stats_for_CODEML_analysis():
@@ -1115,7 +1153,11 @@ def summarise_BUSTED_analyses_for_creating_QC_plots():
     to use regualr expressions and then to organise them ortholog by ortholog in a pandas df.'''
 
     busted_base_dir = '/home/humebc/projects/parky/busted_analyses'
+    block_analysis_base_dir = '/home/humebc/projects/parky/guidance_analyses'
 
+    df_codeml = pickle.load(open('{}/CODEML_dnds_dn_ds_pairwise_pandas_df.pickle'.format(block_analysis_base_dir), 'rb'))
+    df_codeml.sort_index(inplace=True)
+    df_codeml.to_csv('{}/CODEML_dnds_dn_ds_pairwise_pandas_df.csv'.format(block_analysis_base_dir))
     try:
         df = pickle.load(open('{}/BUSTED_qc_plotting_info.pickle'.format(busted_base_dir), 'rb'))
     except:
@@ -1269,8 +1311,82 @@ def summarise_BUSTED_analyses_for_creating_QC_plots():
     ax.set_title('p_value vs ratio between minimum and maximum alignment lengths per ortholog')
     fig.savefig('p_value_vs_alignment_min_max_ratio.svg')
     fig.savefig('p_value_vs_alignment_min_max_ratio.png')
-    apples = 'asdf'
 
+    # # I also want to do this with the codeml equivalent of the p value which is of course the dn/ds value
+    # # to do this lets try to add a column to the df from the df_codeml
+    # apples = 'asdf'
+
+    # now quickly plot up the ds values and the dn/ds values probably best to do this on two subplots
+    fig, axarr = plt.subplots(3, 2, figsize=(10, 10))
+    dn_indices = [1,4,7,10,13,16]
+    ds_indices = [2,5,8,11,14,17]
+    dn_ds_indices = [0,3,6,9,12,15]
+
+    line_x_values = []
+    dn_y = []
+    for ind in dn_indices:
+        dn_y.extend(df_codeml.iloc[:,ind].values.tolist())
+        line_x_values.append(len(dn_y))
+    ds_y = []
+    for ind in ds_indices:
+        ds_y.extend(df_codeml.iloc[:,ind].values.tolist())
+    dn_ds_y = []
+    for ind in dn_ds_indices:
+        dn_ds_y.extend(df_codeml.iloc[:,ind].values.tolist())
+
+
+    axarr[0][0].scatter(x=[i for i in range(len(dn_y))], y=dn_y, marker='.', s=1, color='green')
+    axarr[0][0].set_ylabel('dN value')
+    axarr[0][0].set_title('dN values')
+    axarr[0][0].set_ylim(0, 1)
+
+    axarr[1][0].scatter(x=[i for i in range(len(ds_y))], y=ds_y, marker='.', s=1, color='blue')
+    axarr[1][0].set_ylabel('dS value')
+    axarr[1][0].set_title('dS values')
+    axarr[1][0].set_ylim(0, 80)
+
+    axarr[2][0].scatter(x=[i for i in range(len(dn_ds_y))], y=dn_ds_y, marker='.', s=1)
+    axarr[2][0].set_ylabel('dN/dS value')
+    axarr[2][0].set_title('dN/dS values')
+    axarr[2][0].set_ylim(0, 100)
+
+
+    axarr[0][1].scatter(x=[i for i in range(len(dn_y))], y=dn_y, marker='.', s=1, color='green')
+    axarr[0][1].set_title('dN values cropped')
+    axarr[0][1].set_ylim(0, 0.4)
+
+    axarr[1][1].scatter(x=[i for i in range(len(ds_y))], y=ds_y, marker='.', s=1, color='blue')
+    axarr[1][1].set_title('dS values cropped')
+    axarr[1][1].set_ylim(0, 0.4)
+
+    axarr[2][1].scatter(x=[i for i in range(len(dn_ds_y))], y=dn_ds_y, marker='.', s=1)
+    axarr[2][1].set_title('dN/dS values cropped')
+    axarr[2][1].set_ylim(0, 2)
+    axarr[2][1].plot([line_x_values[0], line_x_values[0]], [0, 2], color='black', linewidth=1)
+    axarr[2][1].plot([line_x_values[1], line_x_values[1]], [0, 2], color='black', linewidth=1)
+    axarr[2][1].plot([line_x_values[2], line_x_values[2]], [0, 2], color='black', linewidth=1)
+    axarr[2][1].plot([line_x_values[3], line_x_values[3]], [0, 2], color='black', linewidth=1)
+    axarr[2][1].plot([line_x_values[4], line_x_values[4]], [0, 2], color='black', linewidth=1)
+    axarr[2][1].text((0 + line_x_values[0])/2, 0.25, 'min_pmin', fontsize=6, ha='center')
+    axarr[2][1].text((line_x_values[0] + line_x_values[1])/2, 0.25, 'min_psyg', fontsize=6, ha='center')
+    axarr[2][1].text((line_x_values[1] + line_x_values[2])/2, 0.25, 'min_psyg', fontsize=6, ha='center')
+    axarr[2][1].text((line_x_values[2] + line_x_values[3])/2, 0.25, 'min_ppsyg', fontsize=6, ha='center')
+    axarr[2][1].text((line_x_values[3] + line_x_values[4])/2, 0.25, 'pmin_ppsyg', fontsize=6, ha='center')
+    axarr[2][1].text((line_x_values[4] + line_x_values[5])/2, 0.25, 'psyg_ppsyg', fontsize=6, ha='center')
+
+
+    fig.tight_layout()
+    # fig.savefig('dn_ds_dnds.svg')
+    fig.savefig('dn_ds_dnds.png')
+
+    # cols = ['min_pmin_dn_ds', 'min_pmin_dn', 'min_pmin_ds',
+    #         'min_psyg_dn_ds', 'min_psyg_dn', 'min_psyg_ds',
+    #         'min_ppsyg_dn_ds', 'min_ppsyg_dn', 'min_ppsyg_ds',
+    #         'pmin_psyg_dn_ds', 'pmin_psyg_dn', 'pmin_psyg_ds',
+    #         'pmin_ppsyg_dn_ds', 'pmin_ppsyg_dn', 'pmin_ppsyg_ds',
+    #         'psyg_ppsyg_dn_ds', 'psyg_ppsyg_dn', 'psyg_ppsyg_ds']
+
+    apples = 'asdf'
 
 def collect_busted_MP_worker_for_creating_QC_plots(input_queue, managed_list, columns):
     busted_base_dir = '/home/humebc/projects/parky/busted_analyses'
@@ -1442,6 +1558,6 @@ def summarise_seb_codeml_results():
 
     apples = 'asdf'
 
-summarise_seb_codeml_results()
+summarise_BUSTED_analyses_for_creating_QC_plots()
 
 
