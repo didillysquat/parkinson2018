@@ -1,1 +1,6 @@
+snapshot/
+CODEML_output_info
+*.png
+*.svg
 /.idea
+*.txt
