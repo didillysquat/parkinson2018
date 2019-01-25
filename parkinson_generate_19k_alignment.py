@@ -1143,7 +1143,7 @@ def summarise_busted_results_stats():
     f.write('p < 0.001 = {}\n'.format(len(sig_at_dict[0.001])))
     f.close()
 
-def summarise_BUSTED_analyses_for_creating_QC_plots():
+def summarise_BUSTED_analyses_for_creating_QC_plots(make_busted_plots=True):
     ''' This is a modification from the original. I am going to go and collect some results from the buseted
     analyses and plot them up against the p value to see if we can find what is causing all of the super low
     p values. I want to pull out the largerst ER and the average ER (evidence ratio). I'll also have a looks
@@ -1151,15 +1151,225 @@ def summarise_BUSTED_analyses_for_creating_QC_plots():
     plot minlength of sequence, max length of sequence, and the ratio between the two. We can plot these against
     along the x axis. SHould look like a sweet plot. I think the easiest way to pull out the info we need will be
     to use regualr expressions and then to organise them ortholog by ortholog in a pandas df.'''
+    if make_busted_plots:
+        make_busted_qc_df_and_plot_results()
 
-    busted_base_dir = '/home/humebc/projects/parky/busted_analyses'
+    make_codeml_df_and_plot_results()
+
+def make_codeml_df_and_plot_results():
+    codeml_df = generate_codeml_df()
+    plot_dn_ds_results_codeml(codeml_df)
+
+
+def plot_codeml_scatter(axarr, axarr_col_ind, axarr_row_ind, title, y_values, line_y_value, colour):
+    axarr[axarr_row_ind][axarr_col_ind].scatter(x=[i for i in range(len(y_values))], y=y_values, marker='.', s=1, color=colour)
+    axarr[axarr_row_ind][axarr_col_ind].set_title(title)
+    axarr[axarr_row_ind][axarr_col_ind].set_ylim(0, line_y_value)
+    axarr[axarr_row_ind][axarr_col_ind].set_xticks([])
+
+
+
+def plot_dn_ds_results_codeml(codeml_df):
+    # now quickly plot up the ds values and the dn/ds values probably best to do this on two subplots
+    axarr, fig = setup_dn_ds_axx_arr_and_fig_obj()
+
+    dn_ds_indices_in_codeml_df, dn_indices_in_codeml_df, ds_indices_in_codeml_df = \
+        define_indices_of_dn_ds_and_dn_ds_data_in_the_codeml_df()
+
+    dn_ds_y_values, dn_y_values, ds_y_values, x_values_for_line_plotting = extract_plotting_values_from_codeml_df(
+        codeml_df, dn_ds_indices_in_codeml_df, dn_indices_in_codeml_df, ds_indices_in_codeml_df
+    )
+
+    # plot dn not cropped
+    plot_dn_not_cropped(axarr, dn_y_values, x_values_for_line_plotting)
+
+    plot_ds_not_cropped(axarr, ds_y_values, x_values_for_line_plotting)
+
+    plot_dn_ds_not_cropped(axarr, dn_ds_y_values, x_values_for_line_plotting)
+
+    plot_dn_cropped(axarr, dn_y_values, x_values_for_line_plotting)
+
+    plot_ds_cropped(axarr, ds_y_values, x_values_for_line_plotting)
+
+    plot_dn_ds_cropped(axarr, dn_ds_y_values, x_values_for_line_plotting)
+
+    fig.tight_layout()
+    # fig.savefig('dn_ds_dnds.svg')
+    fig.savefig('dn_ds_dnds.png')
+
+
+def decorate_text_dn_ds_plots(axarr, axarr_col_ind, axarr_row_ind, x_values_for_line_plotting, y_line_value):
+    axarr[axarr_row_ind][axarr_col_ind].text((0 + x_values_for_line_plotting[0]) / 2, -y_line_value/20, 'min_pmin', fontsize=6,
+                                             ha='center')
+    axarr[axarr_row_ind][axarr_col_ind].text((x_values_for_line_plotting[0] + x_values_for_line_plotting[1]) / 2, 0.25,
+                                             'min_psyg', fontsize=6, ha='center')
+    axarr[axarr_row_ind][axarr_col_ind].text((x_values_for_line_plotting[1] + x_values_for_line_plotting[2]) / 2, 0.25,
+                                             'min_psyg', fontsize=6, ha='center')
+    axarr[axarr_row_ind][axarr_col_ind].text((x_values_for_line_plotting[2] + x_values_for_line_plotting[3]) / 2, 0.25,
+                                             'min_ppsyg', fontsize=6, ha='center')
+    axarr[axarr_row_ind][axarr_col_ind].text((x_values_for_line_plotting[3] + x_values_for_line_plotting[4]) / 2, 0.25,
+                                             'pmin_ppsyg', fontsize=6, ha='center')
+    axarr[axarr_row_ind][axarr_col_ind].text((x_values_for_line_plotting[4] + x_values_for_line_plotting[5]) / 2, 0.25,
+                                             'psyg_ppsyg', fontsize=6, ha='center')
+
+
+def plot_comparison_lines_on_dn_ds_plots(axarr, axarr_col_ind, axarr_row_ind, line_y_value, x_values_for_line_plotting):
+    axarr[axarr_row_ind][axarr_col_ind].plot([x_values_for_line_plotting[0], x_values_for_line_plotting[0]],
+                                             [0, line_y_value], color='black', linewidth=1)
+    axarr[axarr_row_ind][axarr_col_ind].plot([x_values_for_line_plotting[1], x_values_for_line_plotting[1]],
+                                             [0, line_y_value], color='black', linewidth=1)
+    axarr[axarr_row_ind][axarr_col_ind].plot([x_values_for_line_plotting[2], x_values_for_line_plotting[2]],
+                                             [0, line_y_value], color='black', linewidth=1)
+    axarr[axarr_row_ind][axarr_col_ind].plot([x_values_for_line_plotting[3], x_values_for_line_plotting[3]],
+                                             [0, line_y_value], color='black', linewidth=1)
+    axarr[axarr_row_ind][axarr_col_ind].plot([x_values_for_line_plotting[4], x_values_for_line_plotting[4]],
+                                             [0, line_y_value], color='black', linewidth=1)
+
+
+def plot_dn_ds_cropped(axarr, dn_ds_y_values, x_values_for_line_plotting):
+    axarr_row_ind = 2
+    axarr_col_ind = 1
+    line_y_value = 2
+    title = 'dN/dS cropped'
+
+    plot_codeml_scatter(
+        axarr=axarr, axarr_row_ind=axarr_col_ind, axarr_col_ind=axarr_col_ind, line_y_value=line_y_value,
+        title=title, y_values=dn_ds_y_values, colour=None
+    )
+    plot_comparison_lines_on_dn_ds_plots(
+        axarr=axarr, axarr_col_ind=axarr_col_ind, axarr_row_ind=axarr_row_ind, line_y_value=line_y_value,
+        x_values_for_line_plotting=x_values_for_line_plotting
+    )
+    decorate_text_dn_ds_plots(
+        axarr, axarr_col_ind, axarr_row_ind, x_values_for_line_plotting, y_line_value=line_y_value
+    )
+
+
+def plot_ds_cropped(axarr, ds_y_values, x_values_for_line_plotting):
+    axarr_row_ind = 1
+    axarr_col_ind = 1
+    line_y_value = 0.4
+    title = 'dS cropped'
+
+    plot_codeml_scatter(
+        axarr=axarr, axarr_row_ind=axarr_col_ind, axarr_col_ind=axarr_col_ind, line_y_value=line_y_value,
+        title=title, y_values=ds_y_values, colour='blue'
+    )
+    plot_comparison_lines_on_dn_ds_plots(axarr=axarr, axarr_col_ind=axarr_col_ind, axarr_row_ind=axarr_row_ind,
+                                         line_y_value=line_y_value,
+                                         x_values_for_line_plotting=x_values_for_line_plotting)
+    decorate_text_dn_ds_plots(axarr, axarr_col_ind, axarr_row_ind, x_values_for_line_plotting, line_y_value)
+
+
+def plot_dn_cropped(axarr, dn_y_values, x_values_for_line_plotting):
+    axarr_row_ind = 0
+    axarr_col_ind = 1
+    line_y_value = 0.4
+    title = 'dN cropped'
+
+    plot_codeml_scatter(axarr=axarr, axarr_row_ind=axarr_col_ind, axarr_col_ind=axarr_col_ind,
+                        line_y_value=line_y_value, title=title, y_values=dn_y_values, colour='green')
+    plot_comparison_lines_on_dn_ds_plots(axarr=axarr, axarr_col_ind=axarr_col_ind, axarr_row_ind=axarr_row_ind,
+                                         line_y_value=line_y_value,
+                                         x_values_for_line_plotting=x_values_for_line_plotting)
+    decorate_text_dn_ds_plots(axarr, axarr_col_ind, axarr_row_ind, x_values_for_line_plotting, line_y_value)
+
+
+def plot_dn_ds_not_cropped(axarr, dn_ds_y_values, x_values_for_line_plotting):
+    axarr_row_ind = 2
+    axarr_col_ind = 0
+    line_y_value = 100
+    title = 'dN/dS'
+
+    plot_codeml_scatter(axarr=axarr, axarr_row_ind=axarr_col_ind, axarr_col_ind=axarr_col_ind,
+                        line_y_value=line_y_value, title=title, y_values=dn_ds_y_values, colour=None)
+    plot_comparison_lines_on_dn_ds_plots(axarr=axarr, axarr_col_ind=axarr_col_ind, axarr_row_ind=axarr_row_ind,
+                                         line_y_value=line_y_value,
+                                         x_values_for_line_plotting=x_values_for_line_plotting)
+    decorate_text_dn_ds_plots(axarr, axarr_col_ind, axarr_row_ind, x_values_for_line_plotting, line_y_value)
+
+
+def plot_ds_not_cropped(axarr, ds_y_values, x_values_for_line_plotting):
+    axarr_row_ind = 1
+    axarr_col_ind = 0
+    line_y_value = 80
+    title = 'dS'
+
+    plot_codeml_scatter(axarr=axarr, axarr_row_ind=axarr_col_ind, axarr_col_ind=axarr_col_ind,
+                        line_y_value=line_y_value, title=title, y_values=ds_y_values, colour='blue')
+    plot_comparison_lines_on_dn_ds_plots(axarr=axarr, axarr_col_ind=axarr_col_ind, axarr_row_ind=axarr_row_ind,
+                                         line_y_value=line_y_value,
+                                         x_values_for_line_plotting=x_values_for_line_plotting)
+    decorate_text_dn_ds_plots(axarr, axarr_col_ind, axarr_row_ind, x_values_for_line_plotting, line_y_value)
+
+
+def plot_dn_not_cropped(axarr, dn_y_values, x_values_for_line_plotting):
+    axarr_row_ind = 0
+    axarr_col_ind = 0
+    line_y_value = 1
+    title = 'dN'
+
+    plot_codeml_scatter(axarr=axarr, axarr_row_ind=axarr_col_ind, axarr_col_ind=axarr_col_ind,
+                        line_y_value=line_y_value, title=title, y_values=dn_y_values, colour='green')
+    plot_comparison_lines_on_dn_ds_plots(axarr=axarr, axarr_col_ind=axarr_col_ind, axarr_row_ind=axarr_row_ind,
+                                         line_y_value=line_y_value,
+                                         x_values_for_line_plotting=x_values_for_line_plotting)
+    decorate_text_dn_ds_plots(axarr, axarr_col_ind, axarr_row_ind, x_values_for_line_plotting, line_y_value)
+
+
+def extract_plotting_values_from_codeml_df(codeml_df, dn_ds_indices_in_codeml_df, dn_indices_in_codeml_df,
+                                           ds_indices_in_codeml_df):
+    x_values_for_line_plotting = []
+    dn_y_values = []
+    for ind in dn_indices_in_codeml_df:
+        dn_y_values.extend(codeml_df.iloc[:, ind].values.tolist())
+        x_values_for_line_plotting.append(len(dn_y_values))
+    ds_y_values = []
+    for ind in ds_indices_in_codeml_df:
+        ds_y_values.extend(codeml_df.iloc[:, ind].values.tolist())
+    dn_ds_y_values = []
+    for ind in dn_ds_indices_in_codeml_df:
+        dn_ds_y_values.extend(codeml_df.iloc[:, ind].values.tolist())
+    return dn_ds_y_values, dn_y_values, ds_y_values, x_values_for_line_plotting
+
+
+def setup_dn_ds_axx_arr_and_fig_obj():
+    fig, axarr = plt.subplots(3, 2, figsize=(10, 10))
+    return axarr, fig
+
+
+def define_indices_of_dn_ds_and_dn_ds_data_in_the_codeml_df():
+    dn_indices_in_codeml_df = [1, 4, 7, 10, 13, 16]
+    ds_indices_in_codeml_df = [2, 5, 8, 11, 14, 17]
+    dn_ds_indices_in_codeml_df = [0, 3, 6, 9, 12, 15]
+    return dn_ds_indices_in_codeml_df, dn_indices_in_codeml_df, ds_indices_in_codeml_df
+
+
+def make_busted_qc_df_and_plot_results():
+    busted_qc_plotting_info_df = generate_busted_qc_plotting_info_df()
+    plot_busted_qc_results(busted_qc_plotting_info_df)
+
+
+def plot_busted_qc_results(busted_qc_plotting_info_df):
+    plot_evidence_ratios(busted_qc_plotting_info_df)
+    plot_alignment_max_min_lengths_and_ratio(busted_qc_plotting_info_df)
+    plot_p_val_against_max_min_ratio(busted_qc_plotting_info_df)
+
+
+def generate_codeml_df():
     block_analysis_base_dir = '/home/humebc/projects/parky/guidance_analyses'
+    codeml_df = pickle.load(
+        open('{}/CODEML_dnds_dn_ds_pairwise_pandas_df.pickle'.format(block_analysis_base_dir), 'rb'))
+    codeml_df.sort_index(inplace=True)
+    codeml_df.to_csv('{}/CODEML_dnds_dn_ds_pairwise_pandas_df.csv'.format(block_analysis_base_dir))
+    return codeml_df
 
-    df_codeml = pickle.load(open('{}/CODEML_dnds_dn_ds_pairwise_pandas_df.pickle'.format(block_analysis_base_dir), 'rb'))
-    df_codeml.sort_index(inplace=True)
-    df_codeml.to_csv('{}/CODEML_dnds_dn_ds_pairwise_pandas_df.csv'.format(block_analysis_base_dir))
+
+def generate_busted_qc_plotting_info_df():
+    busted_base_dir = '/home/humebc/projects/parky/busted_analyses'
     try:
-        df = pickle.load(open('{}/BUSTED_qc_plotting_info.pickle'.format(busted_base_dir), 'rb'))
+        busted_qc_plotting_info_df = pickle.load(
+            open('{}/BUSTED_qc_plotting_info.pickle'.format(busted_base_dir), 'rb'))
     except:
         list_of_dirs = list()
         for root, dirs, files in os.walk(busted_base_dir):
@@ -1180,41 +1390,49 @@ def summarise_BUSTED_analyses_for_creating_QC_plots():
             input_queue.put('STOP')
 
         columns = ['ortholog_id', 'p_value', 'max_ER_constrained', 'av_ER_constrained',
-                   'max_ER_opt_null','av_ER_opt_null',
+                   'max_ER_opt_null', 'av_ER_opt_null',
                    'min_seq_length', 'max_seq_length', 'ratio_min_max', 'dn_ds']
 
         list_of_processes = []
         for N in range(num_proc):
-            p = Process(target=collect_busted_MP_worker_for_creating_QC_plots, args=(input_queue,managed_list, columns))
+            p = Process(target=collect_busted_MP_worker_for_creating_QC_plots,
+                        args=(input_queue, managed_list, columns))
             list_of_processes.append(p)
             p.start()
 
         for p in list_of_processes:
             p.join()
 
-
-        df = pd.DataFrame(list(managed_list), columns=columns)
-        df.index = [int(a) for a in df['ortholog_id'].tolist()]
-        df.drop(labels='ortholog_id', axis='columns', inplace=True)
-        df.sort_index(inplace=True)
-        pickle.dump(df, open('{}/BUSTED_qc_plotting_info.pickle'.format(busted_base_dir), 'wb'))
-        df.to_csv('{}/BUSTED_qc_plotting_info.csv'.format(busted_base_dir))
-
-
+        busted_qc_plotting_info_df = pd.DataFrame(list(managed_list), columns=columns)
+        busted_qc_plotting_info_df.index = [int(a) for a in busted_qc_plotting_info_df['ortholog_id'].tolist()]
+        busted_qc_plotting_info_df.drop(labels='ortholog_id', axis='columns', inplace=True)
+        busted_qc_plotting_info_df.sort_index(inplace=True)
+        pickle.dump(busted_qc_plotting_info_df, open('{}/BUSTED_qc_plotting_info.pickle'.format(busted_base_dir), 'wb'))
+        busted_qc_plotting_info_df.to_csv('{}/BUSTED_qc_plotting_info.csv'.format(busted_base_dir))
+    return busted_qc_plotting_info_df
 
 
-    fig, axarr = plt.subplots(2,2,figsize=(10,10))
+def plot_p_val_against_max_min_ratio(busted_qc_plotting_info_df):
+    # now lets plot the p value against the max/min ratio
+    fig, ax = plt.subplots(1, 1, figsize=(10, 10), sharex=True)
+    ax.scatter(x=busted_qc_plotting_info_df['p_value'], y=busted_qc_plotting_info_df['ratio_min_max'], marker='.', s=1)
+    ax.set_xlabel('p_value')
+    ax.set_ylabel('alignment length min/max ratio')
+    ax.set_title('p_value vs ratio between minimum and maximum alignment lengths per ortholog')
+    fig.savefig('p_value_vs_alignment_min_max_ratio.svg')
+    fig.savefig('p_value_vs_alignment_min_max_ratio.png')
 
-    non_nan_indices = df[df.iloc[:,1] != 'nan']
+
+def plot_evidence_ratios(df):
+    fig, axarr = plt.subplots(2, 2, figsize=(10, 10))
+    non_nan_indices = df[df.iloc[:, 1] != 'nan']
     small = non_nan_indices[non_nan_indices.iloc[:, 1] < 100]
-    y = small.iloc[:,1].values.tolist()
-    x = small.iloc[:,0].values.tolist()
+    y = small.iloc[:, 1].values.tolist()
+    x = small.iloc[:, 0].values.tolist()
     axarr[0][0].scatter(x, y, marker='.', s=1)
     axarr[0][0].set_title('max ER constrained')
     axarr[0][0].set_xlabel('P_value')
     axarr[0][0].set_ylabel('ER_ratio')
-
-
     non_nan_indices = df[df.iloc[:, 2] != 'nan']
     small = non_nan_indices[non_nan_indices.iloc[:, 2] < 100]
     y = small.iloc[:, 2].values.tolist()
@@ -1223,7 +1441,6 @@ def summarise_BUSTED_analyses_for_creating_QC_plots():
     axarr[0][1].set_title('av ER constrained')
     axarr[0][1].set_xlabel('P_value')
     axarr[0][1].set_ylabel('ER_ratio')
-
     non_nan_indices = df[df.iloc[:, 3] != 'nan']
     small = non_nan_indices[non_nan_indices.iloc[:, 1] < 100]
     y = small.iloc[:, 3].values.tolist()
@@ -1232,7 +1449,6 @@ def summarise_BUSTED_analyses_for_creating_QC_plots():
     axarr[1][0].set_title('max ER opt null')
     axarr[1][0].set_xlabel('P_value')
     axarr[1][0].set_ylabel('ER_ratio')
-
     non_nan_indices = df[df.iloc[:, 4] != 'nan']
     small = non_nan_indices[non_nan_indices.iloc[:, 2] < 100]
     y = small.iloc[:, 4].values.tolist()
@@ -1241,21 +1457,18 @@ def summarise_BUSTED_analyses_for_creating_QC_plots():
     axarr[1][1].set_title('max ER opt null')
     axarr[1][1].set_xlabel('P_value')
     axarr[1][1].set_ylabel('ER_ratio')
-
     fig.tight_layout()
     fig.savefig('ER_scatters.svg')
     fig.savefig('ER_scatters.png')
 
 
+def plot_alignment_max_min_lengths_and_ratio(df):
     # Now create the scatter plot that will show the lengths of the various alignments
     # for each ortholog, use the gene id as the x value and plot the max and min alignments on one axis and then
     # the ratio of these two on another.
-
     fig, axarr = plt.subplots(2, 2, figsize=(10, 10), sharex=True)
-
     plotting_tups_abs = []
     plotting_tups_ratio = []
-
     # get tupples that are the x, y values for the aboslute max and mins
     for ortholog_id in df.index.values.tolist():
         sys.stdout.write('\rGetting plotting data for {}'.format(ortholog_id))
@@ -1270,123 +1483,29 @@ def summarise_BUSTED_analyses_for_creating_QC_plots():
     # plot the aboslute max and mins
     x, y = zip(*plotting_tups_abs)
     axarr[0][0].scatter(x, y, marker='.', s=1, c='b')
-    axarr[0][0].plot([0,30000], [3000, 3000], c='black')
+    axarr[0][0].plot([0, 30000], [3000, 3000], c='black')
     axarr[0][0].set_ylim(0, 25000)
     axarr[0][0].set_ylabel('alignment_length_bp')
     axarr[0][0].set_title('max and min alignment length')
-
-
     axarr[0][1].scatter(x, y, marker='.', s=1, c='b')
-    axarr[0][1].set_ylim(0,3000)
-
+    axarr[0][1].set_ylim(0, 3000)
     axarr[0][1].set_title('max and min alignment length y cropped')
-
-
     # plot the ratio of max to min
     x, y = zip(*plotting_tups_ratio)
-    axarr[1][0].scatter(x, y, marker='.', s=1, c='r' )
+    axarr[1][0].scatter(x, y, marker='.', s=1, c='r')
     axarr[1][0].plot([0, 30000], [0.95, 0.95], c='black')
     axarr[1][0].set_ylim(0, 1)
     axarr[1][0].set_ylabel('ratio')
     axarr[1][0].set_title('max/min ratio')
     axarr[1][0].set_xlabel('ortholog_id')
-
     axarr[1][1].scatter(x, y, marker='.', s=1, c='r')
     axarr[1][1].set_ylim(0.95, 1)
     axarr[1][1].set_xlabel('ortholog_id')
     axarr[1][1].set_title('max/min ratio y cropped')
-
     fig.tight_layout()
     fig.savefig('alignment_lengths_scatters.svg')
     fig.savefig('alignment_lengths_scatters.png')
 
-
-
-    # now lets plot the p value against the max/min ratio
-    fig, ax = plt.subplots(1, 1, figsize=(10, 10), sharex=True)
-
-    ax.scatter(x = df['p_value'], y = df['ratio_min_max'], marker='.', s=1)
-    ax.set_xlabel('p_value')
-    ax.set_ylabel('alignment length min/max ratio')
-    ax.set_title('p_value vs ratio between minimum and maximum alignment lengths per ortholog')
-    fig.savefig('p_value_vs_alignment_min_max_ratio.svg')
-    fig.savefig('p_value_vs_alignment_min_max_ratio.png')
-
-    # # I also want to do this with the codeml equivalent of the p value which is of course the dn/ds value
-    # # to do this lets try to add a column to the df from the df_codeml
-    # apples = 'asdf'
-
-    # now quickly plot up the ds values and the dn/ds values probably best to do this on two subplots
-    fig, axarr = plt.subplots(3, 2, figsize=(10, 10))
-    dn_indices = [1,4,7,10,13,16]
-    ds_indices = [2,5,8,11,14,17]
-    dn_ds_indices = [0,3,6,9,12,15]
-
-    line_x_values = []
-    dn_y = []
-    for ind in dn_indices:
-        dn_y.extend(df_codeml.iloc[:,ind].values.tolist())
-        line_x_values.append(len(dn_y))
-    ds_y = []
-    for ind in ds_indices:
-        ds_y.extend(df_codeml.iloc[:,ind].values.tolist())
-    dn_ds_y = []
-    for ind in dn_ds_indices:
-        dn_ds_y.extend(df_codeml.iloc[:,ind].values.tolist())
-
-
-    axarr[0][0].scatter(x=[i for i in range(len(dn_y))], y=dn_y, marker='.', s=1, color='green')
-    axarr[0][0].set_ylabel('dN value')
-    axarr[0][0].set_title('dN values')
-    axarr[0][0].set_ylim(0, 1)
-
-    axarr[1][0].scatter(x=[i for i in range(len(ds_y))], y=ds_y, marker='.', s=1, color='blue')
-    axarr[1][0].set_ylabel('dS value')
-    axarr[1][0].set_title('dS values')
-    axarr[1][0].set_ylim(0, 80)
-
-    axarr[2][0].scatter(x=[i for i in range(len(dn_ds_y))], y=dn_ds_y, marker='.', s=1)
-    axarr[2][0].set_ylabel('dN/dS value')
-    axarr[2][0].set_title('dN/dS values')
-    axarr[2][0].set_ylim(0, 100)
-
-
-    axarr[0][1].scatter(x=[i for i in range(len(dn_y))], y=dn_y, marker='.', s=1, color='green')
-    axarr[0][1].set_title('dN values cropped')
-    axarr[0][1].set_ylim(0, 0.4)
-
-    axarr[1][1].scatter(x=[i for i in range(len(ds_y))], y=ds_y, marker='.', s=1, color='blue')
-    axarr[1][1].set_title('dS values cropped')
-    axarr[1][1].set_ylim(0, 0.4)
-
-    axarr[2][1].scatter(x=[i for i in range(len(dn_ds_y))], y=dn_ds_y, marker='.', s=1)
-    axarr[2][1].set_title('dN/dS values cropped')
-    axarr[2][1].set_ylim(0, 2)
-    axarr[2][1].plot([line_x_values[0], line_x_values[0]], [0, 2], color='black', linewidth=1)
-    axarr[2][1].plot([line_x_values[1], line_x_values[1]], [0, 2], color='black', linewidth=1)
-    axarr[2][1].plot([line_x_values[2], line_x_values[2]], [0, 2], color='black', linewidth=1)
-    axarr[2][1].plot([line_x_values[3], line_x_values[3]], [0, 2], color='black', linewidth=1)
-    axarr[2][1].plot([line_x_values[4], line_x_values[4]], [0, 2], color='black', linewidth=1)
-    axarr[2][1].text((0 + line_x_values[0])/2, 0.25, 'min_pmin', fontsize=6, ha='center')
-    axarr[2][1].text((line_x_values[0] + line_x_values[1])/2, 0.25, 'min_psyg', fontsize=6, ha='center')
-    axarr[2][1].text((line_x_values[1] + line_x_values[2])/2, 0.25, 'min_psyg', fontsize=6, ha='center')
-    axarr[2][1].text((line_x_values[2] + line_x_values[3])/2, 0.25, 'min_ppsyg', fontsize=6, ha='center')
-    axarr[2][1].text((line_x_values[3] + line_x_values[4])/2, 0.25, 'pmin_ppsyg', fontsize=6, ha='center')
-    axarr[2][1].text((line_x_values[4] + line_x_values[5])/2, 0.25, 'psyg_ppsyg', fontsize=6, ha='center')
-
-
-    fig.tight_layout()
-    # fig.savefig('dn_ds_dnds.svg')
-    fig.savefig('dn_ds_dnds.png')
-
-    # cols = ['min_pmin_dn_ds', 'min_pmin_dn', 'min_pmin_ds',
-    #         'min_psyg_dn_ds', 'min_psyg_dn', 'min_psyg_ds',
-    #         'min_ppsyg_dn_ds', 'min_ppsyg_dn', 'min_ppsyg_ds',
-    #         'pmin_psyg_dn_ds', 'pmin_psyg_dn', 'pmin_psyg_ds',
-    #         'pmin_ppsyg_dn_ds', 'pmin_ppsyg_dn', 'pmin_ppsyg_ds',
-    #         'psyg_ppsyg_dn_ds', 'psyg_ppsyg_dn', 'psyg_ppsyg_ds']
-
-    apples = 'asdf'
 
 def collect_busted_MP_worker_for_creating_QC_plots(input_queue, managed_list, columns):
     busted_base_dir = '/home/humebc/projects/parky/busted_analyses'
@@ -1558,6 +1677,6 @@ def summarise_seb_codeml_results():
 
     apples = 'asdf'
 
-summarise_BUSTED_analyses_for_creating_QC_plots()
+summarise_BUSTED_analyses_for_creating_QC_plots(make_busted_plots=False)
 
 
