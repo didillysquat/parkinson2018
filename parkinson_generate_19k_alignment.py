@@ -1163,8 +1163,9 @@ def make_codeml_df_and_plot_results():
 
 def plot_codeml_scatter(axarr, axarr_col_ind, axarr_row_ind, title, y_values, line_y_value, colour):
     axarr[axarr_row_ind][axarr_col_ind].scatter(x=[i for i in range(len(y_values))], y=y_values, marker='.', s=1, color=colour)
-    axarr[axarr_row_ind][axarr_col_ind].set_title(title)
+    axarr[axarr_row_ind][axarr_col_ind].set_title(label=title, fontdict={'fontsize':10})
     axarr[axarr_row_ind][axarr_col_ind].set_ylim(0, line_y_value)
+    axarr[axarr_row_ind][axarr_col_ind].set_xlim(0, len(y_values))
     axarr[axarr_row_ind][axarr_col_ind].set_xticks([])
 
 
@@ -1193,24 +1194,29 @@ def plot_dn_ds_results_codeml(codeml_df):
 
     plot_dn_ds_cropped(axarr, dn_ds_y_values, x_values_for_line_plotting)
 
-    fig.tight_layout()
+    # fig.tight_layout()
     # fig.savefig('dn_ds_dnds.svg')
     fig.savefig('dn_ds_dnds.png')
 
-
+#
 def decorate_text_dn_ds_plots(axarr, axarr_col_ind, axarr_row_ind, x_values_for_line_plotting, y_line_value):
-    axarr[axarr_row_ind][axarr_col_ind].text((0 + x_values_for_line_plotting[0]) / 2, -y_line_value/20, 'min_pmin', fontsize=6,
-                                             ha='center')
-    axarr[axarr_row_ind][axarr_col_ind].text((x_values_for_line_plotting[0] + x_values_for_line_plotting[1]) / 2, 0.25,
-                                             'min_psyg', fontsize=6, ha='center')
-    axarr[axarr_row_ind][axarr_col_ind].text((x_values_for_line_plotting[1] + x_values_for_line_plotting[2]) / 2, 0.25,
-                                             'min_psyg', fontsize=6, ha='center')
-    axarr[axarr_row_ind][axarr_col_ind].text((x_values_for_line_plotting[2] + x_values_for_line_plotting[3]) / 2, 0.25,
-                                             'min_ppsyg', fontsize=6, ha='center')
-    axarr[axarr_row_ind][axarr_col_ind].text((x_values_for_line_plotting[3] + x_values_for_line_plotting[4]) / 2, 0.25,
-                                             'pmin_ppsyg', fontsize=6, ha='center')
-    axarr[axarr_row_ind][axarr_col_ind].text((x_values_for_line_plotting[4] + x_values_for_line_plotting[5]) / 2, 0.25,
-                                             'psyg_ppsyg', fontsize=6, ha='center')
+    axarr[axarr_row_ind][axarr_col_ind].text(
+        (0 + x_values_for_line_plotting[0]) / 2, -y_line_value/20, 'B.min_B.pse', fontsize=6, ha='center')
+    axarr[axarr_row_ind][axarr_col_ind].text(
+        (x_values_for_line_plotting[0] + x_values_for_line_plotting[1]) / 2, -y_line_value/20,
+        'B.min_B.psy', fontsize=6, ha='center')
+    axarr[axarr_row_ind][axarr_col_ind].text(
+        (x_values_for_line_plotting[1] + x_values_for_line_plotting[2]) / 2, -y_line_value/20,
+        'B.pse_B.psy', fontsize=6, ha='center')
+    axarr[axarr_row_ind][axarr_col_ind].text(
+        (x_values_for_line_plotting[2] + x_values_for_line_plotting[3]) / 2, -y_line_value/20,
+        'B.min_B.aen', fontsize=6, ha='center')
+    axarr[axarr_row_ind][axarr_col_ind].text(
+        (x_values_for_line_plotting[3] + x_values_for_line_plotting[4]) / 2, -y_line_value/20,
+        'B.pse_B.aen', fontsize=6, ha='center')
+    axarr[axarr_row_ind][axarr_col_ind].text(
+        (x_values_for_line_plotting[4] + x_values_for_line_plotting[5]) / 2, -y_line_value/20,
+        'B.psy_B.aen', fontsize=6, ha='center')
 
 
 def plot_comparison_lines_on_dn_ds_plots(axarr, axarr_col_ind, axarr_row_ind, line_y_value, x_values_for_line_plotting):
@@ -1233,7 +1239,7 @@ def plot_dn_ds_cropped(axarr, dn_ds_y_values, x_values_for_line_plotting):
     title = 'dN/dS cropped'
 
     plot_codeml_scatter(
-        axarr=axarr, axarr_row_ind=axarr_col_ind, axarr_col_ind=axarr_col_ind, line_y_value=line_y_value,
+        axarr=axarr, axarr_row_ind=axarr_row_ind, axarr_col_ind=axarr_col_ind, line_y_value=line_y_value,
         title=title, y_values=dn_ds_y_values, colour=None
     )
     plot_comparison_lines_on_dn_ds_plots(
@@ -1252,7 +1258,7 @@ def plot_ds_cropped(axarr, ds_y_values, x_values_for_line_plotting):
     title = 'dS cropped'
 
     plot_codeml_scatter(
-        axarr=axarr, axarr_row_ind=axarr_col_ind, axarr_col_ind=axarr_col_ind, line_y_value=line_y_value,
+        axarr=axarr, axarr_row_ind=axarr_row_ind, axarr_col_ind=axarr_col_ind, line_y_value=line_y_value,
         title=title, y_values=ds_y_values, colour='blue'
     )
     plot_comparison_lines_on_dn_ds_plots(axarr=axarr, axarr_col_ind=axarr_col_ind, axarr_row_ind=axarr_row_ind,
@@ -1267,7 +1273,7 @@ def plot_dn_cropped(axarr, dn_y_values, x_values_for_line_plotting):
     line_y_value = 0.4
     title = 'dN cropped'
 
-    plot_codeml_scatter(axarr=axarr, axarr_row_ind=axarr_col_ind, axarr_col_ind=axarr_col_ind,
+    plot_codeml_scatter(axarr=axarr, axarr_row_ind=axarr_row_ind, axarr_col_ind=axarr_col_ind,
                         line_y_value=line_y_value, title=title, y_values=dn_y_values, colour='green')
     plot_comparison_lines_on_dn_ds_plots(axarr=axarr, axarr_col_ind=axarr_col_ind, axarr_row_ind=axarr_row_ind,
                                          line_y_value=line_y_value,
@@ -1281,7 +1287,7 @@ def plot_dn_ds_not_cropped(axarr, dn_ds_y_values, x_values_for_line_plotting):
     line_y_value = 100
     title = 'dN/dS'
 
-    plot_codeml_scatter(axarr=axarr, axarr_row_ind=axarr_col_ind, axarr_col_ind=axarr_col_ind,
+    plot_codeml_scatter(axarr=axarr, axarr_row_ind=axarr_row_ind, axarr_col_ind=axarr_col_ind,
                         line_y_value=line_y_value, title=title, y_values=dn_ds_y_values, colour=None)
     plot_comparison_lines_on_dn_ds_plots(axarr=axarr, axarr_col_ind=axarr_col_ind, axarr_row_ind=axarr_row_ind,
                                          line_y_value=line_y_value,
@@ -1295,7 +1301,7 @@ def plot_ds_not_cropped(axarr, ds_y_values, x_values_for_line_plotting):
     line_y_value = 80
     title = 'dS'
 
-    plot_codeml_scatter(axarr=axarr, axarr_row_ind=axarr_col_ind, axarr_col_ind=axarr_col_ind,
+    plot_codeml_scatter(axarr=axarr, axarr_row_ind=axarr_row_ind, axarr_col_ind=axarr_col_ind,
                         line_y_value=line_y_value, title=title, y_values=ds_y_values, colour='blue')
     plot_comparison_lines_on_dn_ds_plots(axarr=axarr, axarr_col_ind=axarr_col_ind, axarr_row_ind=axarr_row_ind,
                                          line_y_value=line_y_value,
@@ -1309,7 +1315,7 @@ def plot_dn_not_cropped(axarr, dn_y_values, x_values_for_line_plotting):
     line_y_value = 1
     title = 'dN'
 
-    plot_codeml_scatter(axarr=axarr, axarr_row_ind=axarr_col_ind, axarr_col_ind=axarr_col_ind,
+    plot_codeml_scatter(axarr=axarr, axarr_row_ind=axarr_row_ind, axarr_col_ind=axarr_col_ind,
                         line_y_value=line_y_value, title=title, y_values=dn_y_values, colour='green')
     plot_comparison_lines_on_dn_ds_plots(axarr=axarr, axarr_col_ind=axarr_col_ind, axarr_row_ind=axarr_row_ind,
                                          line_y_value=line_y_value,
